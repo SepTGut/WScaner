@@ -62,6 +62,10 @@ function formatSuccessReply(data) {
     reply += `⚠️ Tidak ada artikel terdeteksi di sidebar.\n\n`;
   }
 
+  if (!data.edition || data.edition === '-') {
+    reply += `💡 *Tips Akurasi:* Bagian bawah cover (Edisi/Tahun) tidak terdeteksi. Pastikan seluruh lembar cover difoto penuh dan tidak terpotong.\n\n`;
+  }
+
   if (data.gas_response) {
     if (data.gas_response.status === 'success') {
       reply += `📊 *Tersimpan ke Google Sheet:* ✅ SUKSES\n`;

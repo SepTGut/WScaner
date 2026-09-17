@@ -3,13 +3,13 @@ import os
 import json
 import asyncio
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageOps
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ocr.engine import extract_lines_with_boxes, get_ocr_engine_name
-from ocr.parser import parse_metadata, parse_articles
+from ocr.parser import parse_metadata, parse_articles, INDONESIAN_MONTHS
 from ocr.gas_client import send_to_gas
 
 
@@ -18,12 +18,45 @@ async def process_image(image_path: str, gas_url: str = None):
         return {"status": "error", "message": f"File not found: {image_path}"}
 
     img = Image.open(image_path)
+    # Auto-orient based on smartphone EXIF metadata
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+
     W, H = img.size
     aspect = W / H
 
     # 1. First pass OCR on the full image
     full_lines = await extract_lines_with_boxes(img)
     edition, date_val, raw_bottom = parse_metadata(full_lines)
+
+    # Review Pass A (Targeted Footer Pass): If edition or date missing, crop bottom footer with contrast enhancement
+    if (not edition or not date_val) and 0.45 <= aspect <= 2.0:
+        try:
+            footer_box = (0, int(0.68 * H), W, H)
+            footer_crop = img.crop(footer_box)
+            if footer_crop.height < 400:
+                scale = 2.0
+                footer_crop = footer_crop.resize(
+                    (int(footer_crop.width * scale), int(footer_crop.height * scale)),
+                    Image.Resampling.LANCZOS
+                )
+            footer_enhanced = ImageOps.autocontrast(footer_crop.convert('L'), cutoff=1)
+            footer_lines = await extract_lines_with_boxes(footer_enhanced)
+            ed_retry, dt_retry, _ = parse_metadata(footer_lines)
+            if ed_retry and not edition:
+                edition = ed_retry
+            if dt_retry and not date_val:
+                date_val = dt_retry
+        except Exception as e:
+            print(f"[WARN] Targeted footer OCR error: {e}", file=sys.stderr)
+
+    # If date still not detected from cover, fallback to current month & year
+    if not date_val:
+        now = datetime.now()
+        curr_month = INDONESIAN_MONTHS[now.month - 1].capitalize()
+        date_val = f"{curr_month} {now.year}"
 
     # 2. Adaptive Sidebar Extraction
     sidebar_lines = []
@@ -54,7 +87,7 @@ async def process_image(image_path: str, gas_url: str = None):
 
         # Extract sidebar lines within left column bounds (excluding paper edge border noise)
         left_min_x = int(0.04 * W)
-        left_max_x = int(0.39 * W)
+        left_max_x = int(0.40 * W)
 
         sidebar_lines = [
             l for l in full_lines
@@ -65,14 +98,40 @@ async def process_image(image_path: str, gas_url: str = None):
         # Fallback: If coordinate filtering yielded fewer than 4 lines, run a dedicated crop OCR pass
         if len(sidebar_lines) < 4:
             try:
-                sidebar_box = (int(0.06 * W), int(0.20 * H), int(0.39 * W), int(0.79 * H))
+                sidebar_box = (int(0.05 * W), int(0.18 * H), int(0.41 * W), int(0.80 * H))
                 sidebar_crop = img.crop(sidebar_box)
-                sidebar_lines = await extract_lines_with_boxes(sidebar_crop)
+                if sidebar_crop.width < 700:
+                    scale = 1.5
+                    sidebar_crop = sidebar_crop.resize(
+                        (int(sidebar_crop.width * scale), int(sidebar_crop.height * scale)),
+                        Image.Resampling.LANCZOS
+                    )
+                sidebar_enhanced = ImageOps.autocontrast(sidebar_crop.convert('L'), cutoff=1)
+                sidebar_lines = await extract_lines_with_boxes(sidebar_enhanced)
             except Exception as e:
                 print(f"[WARN] Fallback crop OCR error: {e}", file=sys.stderr)
 
     # 3. Parse 3 articles with title, author, and surah
     articles = parse_articles(sidebar_lines)
+
+    # Review Pass B: If fewer than 3 articles detected on full cover, run targeted enhanced sidebar pass
+    if len(articles) < 3 and 0.45 <= aspect <= 2.0:
+        try:
+            sidebar_box = (int(0.04 * W), int(0.18 * H), int(0.42 * W), int(0.82 * H))
+            sidebar_crop = img.crop(sidebar_box)
+            if sidebar_crop.width < 700:
+                scale = 1.5
+                sidebar_crop = sidebar_crop.resize(
+                    (int(sidebar_crop.width * scale), int(sidebar_crop.height * scale)),
+                    Image.Resampling.LANCZOS
+                )
+            sidebar_enhanced = ImageOps.autocontrast(sidebar_crop.convert('L'), cutoff=1)
+            retry_lines = await extract_lines_with_boxes(sidebar_enhanced)
+            retry_articles = parse_articles(retry_lines)
+            if len(retry_articles) > len(articles):
+                articles = retry_articles
+        except Exception as e:
+            print(f"[WARN] Review pass sidebar OCR error: {e}", file=sys.stderr)
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     

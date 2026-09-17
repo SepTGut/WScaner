@@ -57,10 +57,10 @@ def clean_title(title: str) -> str:
 
 def extract_surah(title: str):
     """Extracts Surah if present in parentheses, e.g. (Hikmah Surah Al-Hasyr Ayat 9)."""
-    m = re.search(r'\((?:Hikmah\s+)?(Surah?\s+[^)]+)\)', title, re.I)
+    m = re.search(r'\((?:(?:Hikmah|Tafsir|Kajian|Renungan)\s+)?(Surah?\s+[^)]+)\)', title, re.I)
     if m:
         surah = m.group(1).strip()
-        clean_t = re.sub(r'\s*\((?:Hikmah\s+)?(Surah?\s+[^)]+)\)', '', title).strip()
+        clean_t = re.sub(r'\s*\((?:(?:Hikmah|Tafsir|Kajian|Renungan)\s+)?(Surah?\s+[^)]+)\)', '', title, flags=re.I).strip()
         return clean_title(clean_t), surah
     return clean_title(title), "-"
 
@@ -68,6 +68,8 @@ def extract_surah(title: str):
 def clean_author_name(author: str) -> str:
     """Cleans OCR artifacts and fixes common italic font glitches in author names."""
     a = author.strip()
+    # Strip leading prefixes like "Oleh:", "Penulis:", "By:"
+    a = re.sub(r'^(?:Oleh|Penulis|By)\s*[:\-]?\s*', '', a, flags=re.I)
     # Strip leading quotes/apostrophes from italic font detection
     a = re.sub(r'^[\'"`\s]+', '', a)
 
@@ -76,7 +78,7 @@ def clean_author_name(author: str) -> str:
         return 'Kusmina'
     if lower_a in ['susan ti', 'susanti']:
         return 'Susanti'
-    if lower_a in ['m.a. risandy', 'ma risandy']:
+    if lower_a in ['m.a. risandy', 'ma risandy', 'm a risandy']:
         return 'M.A. Risandy'
 
     # Fix author spacing and trailing artifacts
@@ -96,31 +98,31 @@ def parse_metadata(lines):
     date_val = ""
     raw_text = ""
 
-    # Priority 1: Check lines containing 'Edisi' or 'Tahun'
+    # Priority 1: Check lines containing 'Edisi', 'Tahun', 'Bulan', or 'No'
     for item in lines:
         t = item['text'].strip()
         t_low = t.lower()
-        if 'edisi' in t_low or 'tahun' in t_low or 'bulan' in t_low:
+        if any(k in t_low for k in ['edisi', 'tahun', 'bulan', 'no.', 'nomor']):
             raw_text += " " + t
             
             if not edition:
-                edisi_match = re.search(r'Edisi\s*(\d+)', t, re.I)
+                # Matches: Edisi 50, Edisi: 50, Edisi : 50, Ed. 50, Edisi ke-50, Edisi/50, No. 50, Nomor 50
+                edisi_match = re.search(r'(?:Edisi|Ed\.?|Nomor|No\.?)\s*[:.\-/#]?\s*(?:ke-?)?\s*(\d+)', t, re.I)
                 if edisi_match:
                     edition = edisi_match.group(1)
 
             if not date_val:
-                # Look for Month + Year pattern, e.g. 'April 2026' or 'Bulan April 2026'
                 month_pattern = '|'.join(INDONESIAN_MONTHS)
-                date_match = re.search(rf'(?:Bulan\s+)?({month_pattern})\s+(\d{{4}})', t, re.I)
+                date_match = re.search(rf'(?:Bulan\s*[:.\-/#]?\s*)?({month_pattern})\s*[,.\-/#]?\s*(\d{{4}})', t, re.I)
                 if date_match:
                     month_name = date_match.group(1).capitalize()
                     year_val = date_match.group(2)
                     date_val = f"{month_name} {year_val}"
 
-    # Priority 2: Fallback searches if not found yet
+    # Priority 2: Fallback searches across all lines
     if not edition:
         for item in reversed(lines):
-            edisi_match = re.search(r'Edisi\s*(\d+)', item['text'], re.I)
+            edisi_match = re.search(r'(?:Edisi|Ed\.?|Nomor|No\.?)\s*[:.\-/#]?\s*(?:ke-?)?\s*(\d+)', item['text'], re.I)
             if edisi_match:
                 edition = edisi_match.group(1)
                 break
@@ -128,15 +130,10 @@ def parse_metadata(lines):
     if not date_val:
         for item in reversed(lines):
             month_pattern = '|'.join(INDONESIAN_MONTHS)
-            date_match = re.search(rf'({month_pattern})\s+(\d{{4}})', item['text'], re.I)
+            date_match = re.search(rf'({month_pattern})\s*[,.\-/#]?\s*(\d{{4}})', item['text'], re.I)
             if date_match:
                 date_val = f"{date_match.group(1).capitalize()} {date_match.group(2)}"
                 break
-
-    # If still not found, default to current month and year
-    if not date_val:
-        now = datetime.now()
-        date_val = f"April {now.year}"  # Keep April 2026 context or current month
 
     return edition, date_val, raw_text.strip()
 
