@@ -4,9 +4,16 @@ const path = require('path');
 const config = require('./config');
 const { runOCR } = require('./ocrRunner');
 const sessionLogger = require('./sessionLogger');
+const allowedNumbers = require('./allowedNumbers');
 
 let isScanningActive = false;
 const botSentMessageIds = new Set();
+
+function recordBotSentMessage(msgId) {
+  if (msgId) {
+    botSentMessageIds.add(msgId);
+  }
+}
 
 function getTutorialText() {
   return `📖 *PANDUAN PENGGUNAAN WSCANER* 📖\n\n` +
@@ -23,6 +30,10 @@ function getTutorialText() {
     `   • Mengunduh file log (.log) sesi scanner saat ini / sesi terakhir.\n\n` +
     `5️⃣ *Selesai / Nonaktifkan:* Ketik *#stop*\n` +
     `   • Mengakhiri sesi pemindaian dan menutup file log.\n\n` +
+    `👥 *Kelola Nomor Izin (Khusus Chat Diri Sendiri):*\n` +
+    `• *add <nomor>* - Tambah nomor yang diizinkan (misal: *add +62 812 3456 7890*)\n` +
+    `• *rem <nomor>* - Hapus nomor dari daftar izin\n` +
+    `• *list* - Lihat daftar nomor yang diizinkan\n\n` +
     `💡 *Tips:* Ketik *#tuto* kapan saja untuk membaca kembali panduan ini.`;
 }
 
@@ -230,15 +241,14 @@ async function handleMessage(sock, msg) {
 
   // For incoming messages from another phone (fromMe = false):
   const senderNumber = participantNumber || remoteNumber;
-  const isIncomingFromAllowed = !isFromMe && config.ALLOWED_NUMBER && (
-    senderNumber === config.ALLOWED_NUMBER || remoteNumber === config.ALLOWED_NUMBER
-  );
+  const isIncomingFromAllowed = !isFromMe && allowedNumbers.isNumberAllowed(senderNumber, remoteNumber);
 
   // Must be either your own Self-Chat OR an incoming message from the allowed phone
   const isAuthorized = isSelfChat || isIncomingFromAllowed;
+  const currentNumbers = allowedNumbers.getAllowedNumbers();
   const authReason = isSelfChat
     ? 'Chat dengan diri sendiri (Owner)'
-    : (isIncomingFromAllowed ? `Pesan masuk dari ${config.ALLOWED_NUMBER}` : 'Nomor tidak diizinkan');
+    : (isIncomingFromAllowed ? `Pesan masuk dari nomor diizinkan (+${senderNumber})` : 'Nomor tidak diizinkan');
 
   if (!isAuthorized) {
     return;
@@ -254,7 +264,7 @@ async function handleMessage(sock, msg) {
   console.log(`📍 remoteJid     : ${remoteJid}`);
   console.log(`📱 Nomor Akun WA : ${myNumber || '(Belum terdeteksi)'}`);
   console.log(`📲 Nomor Pengirim: ${isFromMe ? myNumber : senderNumber}`);
-  console.log(`🔒 ALLOWED_NUMBER: ${config.ALLOWED_NUMBER ? config.ALLOWED_NUMBER : '(HANYA CHAT DIRI SENDIRI)'}`);
+  console.log(`🔒 NOMOR DIIZINKAN: ${currentNumbers.length > 0 ? currentNumbers.map(n => '+' + n).join(', ') : '(HANYA CHAT DIRI SENDIRI)'}`);
   console.log(`📦 Tipe Pesan WA : ${messageType}`);
   console.log(`💬 Isi Teks      : "${text}"`);
   console.log(`🖼️ Apakah Gambar : ${isImage}`);
@@ -346,6 +356,91 @@ async function handleMessage(sock, msg) {
     return;
   }
 
+  // 3.7 Handle Add Number (Owner Self-Chat Only)
+  if (lowerText.startsWith('add') || lowerText.startsWith('#add')) {
+    if (!isSelfChat) {
+      console.log('⛔ [SECURITY] Percobaan perintah ADD dari luar chat diri sendiri!');
+      await sendBotReply(sock, remoteJid, {
+        text: '⛔ *Akses Ditolak!*\nPerintah menambah nomor hanya dapat dilakukan oleh Owner di chat diri sendiri.'
+      }, { quoted: msg });
+      return;
+    }
+
+    const targetNum = text.replace(/^#?add\s*/i, '').trim();
+    if (!targetNum) {
+      await sendBotReply(sock, remoteJid, {
+        text: 'ℹ️ *Format Perintah ADD:*\nKetik *add <nomor>* untuk menambahkan nomor yang diizinkan.\nContoh: *add +62 812 3456 7890*'
+      }, { quoted: msg });
+      return;
+    }
+
+    const res = allowedNumbers.addNumber(targetNum);
+    if (!res.success) {
+      await sendBotReply(sock, remoteJid, {
+        text: `❌ *Gagal Menambahkan:* ${res.error}`
+      }, { quoted: msg });
+    } else {
+      sessionLogger.logToSession(`➕ Owner menambahkan nomor izin: +${res.number}`);
+      const listStr = res.numbers.map((n, i) => `${i + 1}. +${n}`).join('\n');
+      await sendBotReply(sock, remoteJid, {
+        text: `✅ *Nomor Berhasil Ditambahkan!*\n\nNomor: *+${res.number}*\n\n📋 *Daftar Nomor Diizinkan (${res.numbers.length}):*\n${listStr}`
+      }, { quoted: msg });
+    }
+    console.log('======================================================\n');
+    return;
+  }
+
+  // 3.8 Handle Remove Number (Owner Self-Chat Only)
+  if (lowerText.startsWith('rem') || lowerText.startsWith('#rem') || lowerText.startsWith('remove') || lowerText.startsWith('#remove')) {
+    if (!isSelfChat) {
+      console.log('⛔ [SECURITY] Percobaan perintah REMOVE dari luar chat diri sendiri!');
+      await sendBotReply(sock, remoteJid, {
+        text: '⛔ *Akses Ditolak!*\nPerintah menghapus nomor hanya dapat dilakukan oleh Owner di chat diri sendiri.'
+      }, { quoted: msg });
+      return;
+    }
+
+    const targetNum = text.replace(/^#(?:rem|remove)\s*|^(?:rem|remove)\s*/i, '').trim();
+    if (!targetNum) {
+      await sendBotReply(sock, remoteJid, {
+        text: 'ℹ️ *Format Perintah REM:*\nKetik *rem <nomor>* untuk menghapus nomor dari daftar izin.\nContoh: *rem +62 812 3456 7890*'
+      }, { quoted: msg });
+      return;
+    }
+
+    const res = allowedNumbers.removeNumber(targetNum);
+    if (!res.success) {
+      await sendBotReply(sock, remoteJid, {
+        text: `❌ *Gagal Menghapus:* ${res.error}`
+      }, { quoted: msg });
+    } else {
+      sessionLogger.logToSession(`➖ Owner menghapus nomor izin: +${res.number}`);
+      const listStr = res.numbers.length > 0
+        ? res.numbers.map((n, i) => `${i + 1}. +${n}`).join('\n')
+        : '_(Tidak ada nomor luar, hanya chat diri sendiri)_';
+      await sendBotReply(sock, remoteJid, {
+        text: `🗑️ *Nomor Berhasil Dihapus!*\n\nNomor: *+${res.number}*\n\n📋 *Daftar Nomor Diizinkan (${res.numbers.length}):*\n${listStr}`
+      }, { quoted: msg });
+    }
+    console.log('======================================================\n');
+    return;
+  }
+
+  // 3.9 Handle List Numbers
+  if (isCmd('list') || isCmd('numbers') || isCmd('#list')) {
+    const list = allowedNumbers.getAllowedNumbers();
+    let reply = `📋 *Daftar Nomor Diizinkan (${list.length}):*\n\n`;
+    if (list.length > 0) {
+      reply += list.map((n, i) => `${i + 1}. +${n}`).join('\n');
+    } else {
+      reply += `_(Belum ada nomor luar, hanya chat diri sendiri)_`;
+    }
+    reply += `\n\n💡 *Perintah:* Ketik *add <nomor>* untuk menambah atau *rem <nomor>* untuk menghapus.`;
+    await sendBotReply(sock, remoteJid, { text: reply }, { quoted: msg });
+    console.log('======================================================\n');
+    return;
+  }
+
   // 4. Handle Image
   if (isImage) {
     if (!isScanningActive) {
@@ -379,4 +474,4 @@ async function handleMessage(sock, msg) {
   console.log('======================================================\n');
 }
 
-module.exports = { handleMessage };
+module.exports = { handleMessage, recordBotSentMessage };

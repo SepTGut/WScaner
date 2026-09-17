@@ -10,6 +10,7 @@ yarn-error.log*
 !.env.example
 auth_info/
 auth_info*/
+allowed_numbers.json
 
 # Temporary files and session logs
 temp/
