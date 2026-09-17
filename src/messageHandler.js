@@ -3,9 +3,28 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const { runOCR } = require('./ocrRunner');
+const sessionLogger = require('./sessionLogger');
 
 let isScanningActive = false;
 const botSentMessageIds = new Set();
+
+function getTutorialText() {
+  return `📖 *PANDUAN PENGGUNAAN WSCANER* 📖\n\n` +
+    `1️⃣ *Mulai Pemindaian:* Ketik *#start*\n` +
+    `   • Scanner aktif & sesi log baru dibuat.\n\n` +
+    `2️⃣ *Kirim Foto Buletin/Majalah:*\n` +
+    `   • Kirim 1 foto atau beberapa foto sekaligus.\n` +
+    `   • Bot mengekstrak *Edisi*, *Bulan/Tahun*, *Judul Artikel*, *Penulis*, & *Surah*.\n` +
+    `   • Foto otomatis diunggah ke Google Drive (*DB-WScan*).\n` +
+    `   • Data langsung tersimpan di baris baru Google Spreadsheet.\n\n` +
+    `3️⃣ *Cek Spreadsheet:* Ketik *#link*\n` +
+    `   • Mendapatkan link langsung ke Google Sheet hasil rekap.\n\n` +
+    `4️⃣ *Unduh Log Sesi:* Ketik *#log*\n` +
+    `   • Mengunduh file log (.log) sesi scanner saat ini / sesi terakhir.\n\n` +
+    `5️⃣ *Selesai / Nonaktifkan:* Ketik *#stop*\n` +
+    `   • Mengakhiri sesi pemindaian dan menutup file log.\n\n` +
+    `💡 *Tips:* Ketik *#tuto* kapan saja untuk membaca kembali panduan ini.`;
+}
 
 function formatSuccessReply(data) {
   let reply = `✅ *Scan Berhasil!*\n\n`;
@@ -103,14 +122,23 @@ async function handleSingleImage(sock, item) {
     fs.writeFileSync(filePath, buffer);
 
     console.log(`[DEBUG] Foto disimpan di: ${filePath}`);
+    sessionLogger.logToSession(`📸 Foto diterima & disimpan: ${fileName}`);
+
     const ocrData = await runOCR(filePath);
     console.log(`[DEBUG] Hasil OCR:`, JSON.stringify(ocrData, null, 2));
 
     if (ocrData.status !== 'success') {
+      sessionLogger.logToSession(`❌ Gagal OCR: ${ocrData.message || 'Format tidak dikenali.'}`);
       await sendBotReply(sock, remoteJid, {
         text: `❌ *Gagal memproses gambar:* ${ocrData.message || 'Format tidak dikenali.'}`
       }, { quoted: msg });
       return;
+    }
+
+    const articleCount = (ocrData.articles || []).length;
+    sessionLogger.logToSession(`✅ OCR Berhasil - Edisi: ${ocrData.edition || '-'}, Tanggal: ${ocrData.date || '-'}, Artikel: ${articleCount} judul`);
+    if (ocrData.gas_response) {
+      sessionLogger.logToSession(`📊 Status Google Sheet: ${ocrData.gas_response.status} (Drive: ${ocrData.gas_response.drive_file_url ? 'OK' : 'None'})`);
     }
 
     const reply = formatSuccessReply(ocrData);
@@ -119,6 +147,7 @@ async function handleSingleImage(sock, item) {
 
   } catch (err) {
     console.error('❌ [DEBUG ERROR]', err.message);
+    sessionLogger.logToSession(`❌ Error pemrosesan: ${err.message}`);
     await sendBotReply(sock, remoteJid, {
       text: `❌ *Gagal:* ${err.message}`
     }, { quoted: msg });
@@ -222,31 +251,87 @@ async function handleMessage(sock, msg) {
   console.log(`🖼️ Apakah Gambar : ${isImage}`);
   console.log(`⚡ Status Scanner: ${isScanningActive ? '🟢 AKTIF' : '🔴 NONAKTIF'}`);
 
+  // Helper for matching commands with or without '#'
+  const isCmd = (target) => {
+    if (!target) return false;
+    const clean = target.replace(/^#/, '').toLowerCase();
+    return lowerText === `#${clean}` || lowerText === clean;
+  };
+
   // 3. Handle Commands
-  if (lowerText === config.START_COMMAND) {
+  if (isCmd(config.START_COMMAND)) {
     isScanningActive = true;
-    console.log(`🟢 [DEBUG] Perintah START diterima! Mengaktifkan scanner.`);
+    sessionLogger.startSession();
+    sessionLogger.logToSession('🟢 Sesi scanner diaktifkan oleh user.');
+    console.log(`🟢 [DEBUG] Perintah START diterima! Mengaktifkan scanner & memulai sesi log.`);
     await sendBotReply(sock, remoteJid, {
-      text: `🟢 *Scanner Ulul Albab AKTIF!*\n\nSilakan kirimkan foto cover/artikel dakwah. Data akan otomatis diekstrak dan disimpan ke Google Sheet.\n\nKetik *${config.STOP_COMMAND}* untuk menonaktifkan.`
+      text: `🟢 *Scanner Ulul Albab AKTIF!*\nSesi baru telah dimulai & pencatatan log aktif.\n\n` + getTutorialText()
     }, { quoted: msg });
     console.log('======================================================\n');
     return;
   }
 
-  if (lowerText === config.STOP_COMMAND) {
+  if (isCmd(config.STOP_COMMAND)) {
     isScanningActive = false;
-    console.log(`🔴 [DEBUG] Perintah STOP diterima! Menonaktifkan scanner.`);
+    sessionLogger.logToSession('🔴 Sesi scanner dinonaktifkan oleh user.');
+    const closedLog = sessionLogger.endSession();
+    console.log(`🔴 [DEBUG] Perintah STOP diterima! Menonaktifkan scanner. Sesi tersimpan di: ${closedLog}`);
     await sendBotReply(sock, remoteJid, {
-      text: `🔴 *Scanner Ulul Albab DINONAKTIFKAN.*\n\nBot tidak akan memproses foto hingga Anda mengetik *${config.START_COMMAND}* kembali.`
+      text: `🔴 *Scanner Ulul Albab DINONAKTIFKAN.*\n\nSesi pemindaian telah selesai dan file log telah disimpan.\n\n` +
+        `• Ketik *#log* untuk mengunduh log sesi ini.\n` +
+        `• Ketik *#link* untuk membuka Google Spreadsheet.\n` +
+        `• Ketik *#start* jika ingin memulai sesi baru.`
     }, { quoted: msg });
     console.log('======================================================\n');
     return;
   }
 
-  if (lowerText === config.STATUS_COMMAND) {
+  if (isCmd(config.STATUS_COMMAND)) {
     console.log(`ℹ️ [DEBUG] Perintah STATUS diterima.`);
     await sendBotReply(sock, remoteJid, {
-      text: `ℹ️ *Status Scanner:* ${isScanningActive ? '🟢 AKTIF (Siap menerima foto)' : '🔴 NONAKTIF (Ketik ' + config.START_COMMAND + ' untuk mulai)'}`
+      text: `ℹ️ *Status Scanner:* ${isScanningActive ? '🟢 AKTIF (Sesi sedang berjalan)' : '🔴 NONAKTIF'}\n\n` +
+        `• Status: ${isScanningActive ? 'Sedang merekam sesi pemindaian' : 'Ketik *#start* untuk mulai'}\n` +
+        `• Perintah: *#start*, *#stop*, *#status*, *#link*, *#log*, *#tuto*`
+    }, { quoted: msg });
+    console.log('======================================================\n');
+    return;
+  }
+
+  if (isCmd(config.LINK_COMMAND)) {
+    console.log(`🔗 [DEBUG] Perintah LINK diterima.`);
+    await sendBotReply(sock, remoteJid, {
+      text: `📊 *Link Google Spreadsheet WScaner:*\n\n${config.SPREADSHEET_URL}\n\n_(Akses publik: Siapa saja yang memiliki link dapat melihat dan mengedit)_`
+    }, { quoted: msg });
+    console.log('======================================================\n');
+    return;
+  }
+
+  if (isCmd(config.LOG_COMMAND)) {
+    console.log(`📄 [DEBUG] Perintah LOG diterima.`);
+    const logFilePath = sessionLogger.getLatestLogFile();
+    if (!logFilePath || !fs.existsSync(logFilePath)) {
+      await sendBotReply(sock, remoteJid, {
+        text: '⚠️ *Belum ada file log sesi.*\nSilakan ketik *#start* dan kirim beberapa foto terlebih dahulu.'
+      }, { quoted: msg });
+    } else {
+      sessionLogger.logToSession(`📄 Pengiriman file log diminta user: ${path.basename(logFilePath)}`);
+      const fileStats = fs.statSync(logFilePath);
+      const fileName = path.basename(logFilePath);
+      await sendBotReply(sock, remoteJid, {
+        document: fs.readFileSync(logFilePath),
+        mimetype: 'text/plain',
+        fileName: fileName,
+        caption: `📄 *File Log Sesi Scanner*\n\n📂 File: *${fileName}*\n⚖️ Ukuran: *${(fileStats.size / 1024).toFixed(1)} KB*\n⚡ Status Sesi: ${isScanningActive ? '🟢 Sedang Berjalan' : '🔴 Telah Berhenti'}`
+      }, { quoted: msg });
+    }
+    console.log('======================================================\n');
+    return;
+  }
+
+  if (isCmd(config.TUTO_COMMAND)) {
+    console.log(`📖 [DEBUG] Perintah TUTO diterima.`);
+    await sendBotReply(sock, remoteJid, {
+      text: getTutorialText()
     }, { quoted: msg });
     console.log('======================================================\n');
     return;
@@ -257,7 +342,7 @@ async function handleMessage(sock, msg) {
     if (!isScanningActive) {
       console.log(`⚠️ [DEBUG] Gambar diabaikan karena scanner sedang NONAKTIF.`);
       await sendBotReply(sock, remoteJid, {
-        text: `⚠️ *Scanner sedang nonaktif.*\nKetik *${config.START_COMMAND}* terlebih dahulu untuk mengaktifkan pemindaian.`
+        text: `⚠️ *Scanner sedang nonaktif.*\nKetik *${config.START_COMMAND}* terlebih dahulu untuk mengaktifkan pemindaian.\nKetik *#tuto* untuk melihat panduan penggunaan.`
       }, { quoted: msg });
       console.log('======================================================\n');
       return;
@@ -265,6 +350,7 @@ async function handleMessage(sock, msg) {
 
     imageQueue.push({ msg, remoteJid });
     const queuePosition = imageQueue.length;
+    sessionLogger.logToSession(`⏳ Foto masuk antrean ke-${queuePosition}`);
 
     if (queuePosition > 1) {
       console.log(`⏳ [DEBUG] Foto ditambahkan ke antrean (Posisi ke-${queuePosition}).`);
