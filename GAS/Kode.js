@@ -1,4 +1,4 @@
-const DATA_START_ROW = 6;
+const DATA_START_ROW = 5;
 
 function getTargetSheet() {
   var ss = null;
@@ -22,7 +22,17 @@ function getOrCreateFolder(folderName) {
 
 function getNextRow(sheet) {
   const lastRow = sheet.getLastRow();
-  return Math.max(DATA_START_ROW, lastRow + 1);
+  if (lastRow < DATA_START_ROW) {
+    return DATA_START_ROW;
+  }
+  // Inspect Column A to find the last filled data row
+  const colA = sheet.getRange(DATA_START_ROW, 1, Math.max(1, lastRow - DATA_START_ROW + 1), 1).getValues();
+  for (let i = colA.length - 1; i >= 0; i--) {
+    if (colA[i][0] !== "" && colA[i][0] !== null && colA[i][0] !== undefined) {
+      return DATA_START_ROW + i + 1;
+    }
+  }
+  return DATA_START_ROW;
 }
 
 function doGet(e) {
@@ -47,7 +57,8 @@ function doPost(e) {
     
     const timestamp = data.timestamp || Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm");
     const date = data.date || "April 2026";
-    const edition = data.edition || "";
+    const tahun = data.year_roman || "-";
+    const edition = data.edition || "-";
     
     // Save photo to Google Drive folder "DB-WScan" if provided
     let fileUrl = "";
@@ -55,7 +66,7 @@ function doPost(e) {
       try {
         const folder = getOrCreateFolder("DB-WScan");
         const decoded = Utilities.base64Decode(data.image_base64);
-        const fileName = data.image_name || ("scan_" + (edition ? "Ed" + edition + "_" : "") + Date.now() + ".jpg");
+        const fileName = data.image_name || ("scan_" + (edition !== "-" ? "Ed" + edition + "_" : "") + Date.now() + ".jpg");
         const blob = Utilities.newBlob(decoded, data.image_mime || "image/jpeg", fileName);
         const file = folder.createFile(blob);
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -74,17 +85,27 @@ function doPost(e) {
         const currentRow = startRow + idx;
         const nextNo = currentRow - DATA_START_ROW + 1;
         return [
-          nextNo,
-          timestamp,
-          date,
-          edition,
-          art.title || "",
-          art.author || "",
-          art.surah || "-",
-          photoHyperlink
+          nextNo,             // Col 1 (A): No
+          timestamp,          // Col 2 (B): TimeStamp
+          date,               // Col 3 (C): Date
+          tahun,              // Col 4 (D): Tahun (Angka Romawi)
+          edition,            // Col 5 (E): Edition
+          art.title || "",    // Col 6 (F): Article
+          art.author || "",   // Col 7 (G): Author
+          art.surah || "-",   // Col 8 (H): Surah
+          photoHyperlink      // Col 9 (I): LInk Foto 
         ];
       });
-      sheet.getRange(startRow, 1, rows.length, 8).setValues(rows);
+
+      // Write exactly 9 columns (leaving Col 10 'JANGAN DIRUBAH' untouched)
+      const dataRange = sheet.getRange(startRow, 1, rows.length, 9);
+      dataRange.setValues(rows);
+
+      // Formatting: vertical center, center align metadata, left align text
+      dataRange.setVerticalAlignment("middle");
+      sheet.getRange(startRow, 1, rows.length, 5).setHorizontalAlignment("center"); // No, TimeStamp, Date, Tahun, Edition
+      sheet.getRange(startRow, 6, rows.length, 2).setHorizontalAlignment("left").setWrap(true); // Article, Author
+      sheet.getRange(startRow, 8, rows.length, 2).setHorizontalAlignment("center"); // Surah, Link Foto
     }
 
     return ContentService.createTextOutput(JSON.stringify({ 
@@ -114,19 +135,25 @@ function testNativeWrite() {
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   const testUrl = file.getUrl();
   
-  // Use semicolon (;) for Indonesian Google Sheets formula
   const photoFormula = `=HYPERLINK("${testUrl}"; "[Link]")`;
 
-  sheet.getRange(targetRow, 1, 1, 8).setValues([[
+  const dataRange = sheet.getRange(targetRow, 1, 1, 9);
+  dataRange.setValues([[
     nextNo,
     Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm"),
     "April 2026",
-    "99 (TEST)",
+    "XI",
+    "50",
     "Uji Coba Native Interaksi Sheet + Drive",
     "WScaner Bot",
     "-",
     photoFormula
   ]]);
+  
+  dataRange.setVerticalAlignment("middle");
+  sheet.getRange(targetRow, 1, 1, 5).setHorizontalAlignment("center");
+  sheet.getRange(targetRow, 6, 1, 2).setHorizontalAlignment("left").setWrap(true);
+  sheet.getRange(targetRow, 8, 1, 2).setHorizontalAlignment("center");
   
   Logger.log("✅ Test row & Drive file added successfully to Row " + targetRow + " (No " + nextNo + "): " + testUrl);
 }
