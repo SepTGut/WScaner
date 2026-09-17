@@ -28,9 +28,11 @@ async function initWhatsAppBot() {
 
     if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('Koneksi terputus. Menghubungkan kembali...', shouldReconnect);
+      console.log('Koneksi terputus. Menghubungkan kembali dalam 3 detik...', shouldReconnect);
       if (shouldReconnect) {
-        initWhatsAppBot();
+        setTimeout(() => {
+          initWhatsAppBot().catch(e => console.error('Error saat rekoneksi bot:', e.message));
+        }, 3000);
       }
     } else if (connection === 'open') {
       console.log('======================================================');

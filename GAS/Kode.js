@@ -22,6 +22,14 @@ function getNextRow(sheet) {
   return Math.max(DATA_START_ROW, lastRow + 1);
 }
 
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "ok",
+    message: "WScaner Web App is running",
+    timestamp: Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss")
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   try {
     const sheet = getTargetSheet();
@@ -51,11 +59,11 @@ function doPost(e) {
     const photoHyperlink = fileUrl ? `=HYPERLINK("${fileUrl}"; "[Link]")` : "-";
 
     if (data.articles && data.articles.length > 0) {
-      data.articles.forEach(function(art) {
-        const targetRow = getNextRow(sheet);
-        const nextNo = targetRow - DATA_START_ROW + 1;
-
-        sheet.getRange(targetRow, 1, 1, 8).setValues([[
+      const startRow = getNextRow(sheet);
+      const rows = data.articles.map(function(art, idx) {
+        const currentRow = startRow + idx;
+        const nextNo = currentRow - DATA_START_ROW + 1;
+        return [
           nextNo,
           timestamp,
           date,
@@ -64,8 +72,9 @@ function doPost(e) {
           art.author || "",
           art.surah || "-",
           photoHyperlink
-        ]]);
+        ];
       });
+      sheet.getRange(startRow, 1, rows.length, 8).setValues(rows);
     }
 
     return ContentService.createTextOutput(JSON.stringify({ 

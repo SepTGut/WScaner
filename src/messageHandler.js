@@ -110,6 +110,7 @@ let isProcessingQueue = false;
 
 async function handleSingleImage(sock, item) {
   const { msg, remoteJid } = item;
+  let filePath = null;
 
   try {
     if (!fs.existsSync(config.TEMP_DIR)) {
@@ -118,7 +119,7 @@ async function handleSingleImage(sock, item) {
 
     const buffer = await downloadMediaMessage(msg, 'buffer', {});
     const fileName = `scan_${Date.now()}.jpg`;
-    const filePath = path.join(config.TEMP_DIR, fileName);
+    filePath = path.join(config.TEMP_DIR, fileName);
     fs.writeFileSync(filePath, buffer);
 
     console.log(`[DEBUG] Foto disimpan di: ${filePath}`);
@@ -151,6 +152,14 @@ async function handleSingleImage(sock, item) {
     await sendBotReply(sock, remoteJid, {
       text: `❌ *Gagal:* ${err.message}`
     }, { quoted: msg });
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (cleanupErr) {
+        // Ignore file lock or temp cleanup warning
+      }
+    }
   }
 }
 

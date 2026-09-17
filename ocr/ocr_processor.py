@@ -19,15 +19,57 @@ async def process_image(image_path: str, gas_url: str = None):
 
     img = Image.open(image_path)
     W, H = img.size
+    aspect = W / H
 
-    # 1. Full page OCR for bottom metadata
+    # 1. First pass OCR on the full image
     full_lines = await extract_lines_with_boxes(img)
     edition, date_val, raw_bottom = parse_metadata(full_lines)
 
-    # 2. Crop sidebar (relative position for magazine layout)
-    sidebar_box = (int(0.06 * W), int(0.20 * H), int(0.39 * W), int(0.79 * H))
-    sidebar_crop = img.crop(sidebar_box)
-    sidebar_lines = await extract_lines_with_boxes(sidebar_crop)
+    # 2. Adaptive Sidebar Extraction
+    sidebar_lines = []
+
+    # Case A: Image is a horizontal strip / footer only (Aspect > 2.0)
+    if aspect > 2.0:
+        sidebar_lines = []
+
+    # Case B: Image is already a cropped vertical strip / sidebar (Aspect < 0.45)
+    elif aspect < 0.45:
+        # All lines on the image belong to the sidebar directly
+        sidebar_lines = full_lines
+
+    # Case C: Standard full cover / page layout (0.45 <= Aspect <= 2.0)
+    else:
+        # Detect dynamic top anchor (where 'Artikel edisi ini' is located on the left)
+        start_y = int(0.18 * H)
+        end_y = int(0.82 * H)
+
+        for l in full_lines:
+            t_low = l['text'].lower()
+            # Top boundary: immediately after header tags on left column
+            if ('edisi ini' in t_low or ('artikel' in t_low and l['y'] < 0.4 * H)) and l['x'] < 0.38 * W:
+                start_y = max(start_y, l['y'] + l['h'])
+            # Bottom boundary: footer metadata line
+            if ('tahun' in t_low or 'edisi' in t_low) and l['y'] > 0.65 * H:
+                end_y = min(end_y, l['y'])
+
+        # Extract sidebar lines within left column bounds (excluding paper edge border noise)
+        left_min_x = int(0.04 * W)
+        left_max_x = int(0.39 * W)
+
+        sidebar_lines = [
+            l for l in full_lines
+            if left_min_x <= l['x'] <= left_max_x
+            and start_y <= l['y'] < end_y
+        ]
+
+        # Fallback: If coordinate filtering yielded fewer than 4 lines, run a dedicated crop OCR pass
+        if len(sidebar_lines) < 4:
+            try:
+                sidebar_box = (int(0.06 * W), int(0.20 * H), int(0.39 * W), int(0.79 * H))
+                sidebar_crop = img.crop(sidebar_box)
+                sidebar_lines = await extract_lines_with_boxes(sidebar_crop)
+            except Exception as e:
+                print(f"[WARN] Fallback crop OCR error: {e}", file=sys.stderr)
 
     # 3. Parse 3 articles with title, author, and surah
     articles = parse_articles(sidebar_lines)
