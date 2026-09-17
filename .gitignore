@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Sensitive environment credentials
+.env
+auth_info/
+temp/
+
+# Clasp / Google credentials
+.clasprc.json

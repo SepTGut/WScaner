@@ -1,0 +1,5 @@
+pillow
+requests
+pytesseract
+openpyxl
+winocr; sys_platform == 'win32'

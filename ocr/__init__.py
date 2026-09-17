@@ -1,0 +1,1 @@
+# OCR Module for WScaner

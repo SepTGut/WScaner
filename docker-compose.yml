@@ -1,0 +1,12 @@
+services:
+  wscaner:
+    build: .
+    container_name: wscaner-bot
+    restart: unless-stopped
+    volumes:
+      # Preserves WhatsApp login so you don't need to re-scan QR on container restarts
+      - ./auth_info:/app/auth_info
+      - ./temp:/app/temp
+      - ./.env:/app/.env
+    stdin_open: true
+    tty: true

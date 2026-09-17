@@ -1,0 +1,21 @@
+{
+  "name": "wscaner",
+  "version": "1.0.0",
+  "description": "WhatsApp OCR Scanner to Google Sheet",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "test:ocr": "python ocr/ocr_processor.py Data/Example0.jpg.jpeg",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:logs": "docker compose logs -f",
+    "docker:down": "docker compose down"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "axios": "^1.20.0",
+    "dotenv": "^17.4.2",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
