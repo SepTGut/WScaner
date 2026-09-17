@@ -29,7 +29,7 @@ async def process_image(image_path: str, gas_url: str = None):
 
     # 1. First pass OCR on the full image
     full_lines = await extract_lines_with_boxes(img)
-    edition, date_val, raw_bottom = parse_metadata(full_lines)
+    edition, date_val, raw_bottom, year_roman = parse_metadata(full_lines)
 
     # Review Pass A (Targeted Footer Pass): If edition or date missing, crop bottom footer with contrast enhancement
     if (not edition or not date_val) and 0.45 <= aspect <= 2.0:
@@ -44,11 +44,13 @@ async def process_image(image_path: str, gas_url: str = None):
                 )
             footer_enhanced = ImageOps.autocontrast(footer_crop.convert('L'), cutoff=1)
             footer_lines = await extract_lines_with_boxes(footer_enhanced)
-            ed_retry, dt_retry, _ = parse_metadata(footer_lines)
+            ed_retry, dt_retry, _, yr_retry = parse_metadata(footer_lines)
             if ed_retry and not edition:
                 edition = ed_retry
             if dt_retry and not date_val:
                 date_val = dt_retry
+            if yr_retry and not year_roman:
+                year_roman = yr_retry
         except Exception as e:
             print(f"[WARN] Targeted footer OCR error: {e}", file=sys.stderr)
 
@@ -150,6 +152,7 @@ async def process_image(image_path: str, gas_url: str = None):
         "timestamp": now_str,
         "date": date_val,
         "edition": edition,
+        "year_roman": year_roman,
         "filename": os.path.basename(image_path),
         "articles": articles,
         "image_base64": image_b64,

@@ -46,7 +46,10 @@ function getTutorialText(isSelfChat = false) {
 
 function formatSuccessReply(data) {
   let reply = `✅ *Scan Berhasil!*\n\n`;
-  reply += `📖 *Edisi:* ${data.edition || '-'}\n`;
+  const edisiStr = data.edition
+    ? `${data.edition}${data.year_roman ? ` (Tahun ${data.year_roman})` : ''}`
+    : '-';
+  reply += `📖 *Edisi:* ${edisiStr}\n`;
   reply += `📅 *Bulan/Tahun:* ${data.date || '-'}\n\n`;
 
   if (data.articles && data.articles.length > 0) {

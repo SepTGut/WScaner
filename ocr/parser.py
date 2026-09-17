@@ -89,53 +89,97 @@ def clean_author_name(author: str) -> str:
     return a.strip()
 
 
+def normalize_roman(val: str) -> str:
+    """Normalizes OCR misreadings of Roman numerals (e.g. Xl, XJ -> XI)."""
+    if not val:
+        return ""
+    v = val.strip().upper()
+    v = v.replace('L', 'I').replace('J', 'I').replace('1', 'I').replace('|', 'I').replace('!', 'I')
+    if re.match(r'^[IVXLCDM]+$', v):
+        return v
+    return val.strip()
+
+
 def parse_metadata(lines):
     """
-    Extracts Edition number and Date from detected lines.
-    Supports single or multi-line metadata across full page or cropped footer.
+    Extracts Roman Year, Edition number, and Date from detected lines.
+    Follows magazine footer format:
+    'Tahun [Roman Year] Edisi [Edition Number] [Bulan] [Month] [Year]'
+    Example: 'Tahun Xl Edisi 51 Bulan April 2026'
     """
     edition = ""
     date_val = ""
+    year_roman = ""
     raw_text = ""
+    month_pattern = '|'.join(INDONESIAN_MONTHS)
 
-    # Priority 1: Check lines containing 'Edisi', 'Tahun', 'Bulan', or 'No'
-    for item in lines:
+    # Strategy 1: Look for unified footer line from bottom up
+    for item in reversed(lines):
         t = item['text'].strip()
         t_low = t.lower()
-        if any(k in t_low for k in ['edisi', 'tahun', 'bulan', 'no.', 'nomor']):
-            raw_text += " " + t
-            
-            if not edition:
-                # Matches: Edisi 50, Edisi: 50, Edisi : 50, Ed. 50, Edisi ke-50, Edisi/50, No. 50, Nomor 50
-                edisi_match = re.search(r'(?:Edisi|Ed\.?|Nomor|No\.?)\s*[:.\-/#]?\s*(?:ke-?)?\s*(\d+)', t, re.I)
-                if edisi_match:
-                    edition = edisi_match.group(1)
+        if 'tahun' in t_low or 'edisi' in t_low:
+            unified_match = re.search(
+                rf'Tahun\s*[:.\-/#]?\s*(?:([IVXLCDMjl1\|!]+)\s+)?(?:Edisi|Ed\.?)\s*[:.\-/#]?\s*(\d+)(?:\s*(?:Bulan\s*[:.\-/#]?\s*)?({month_pattern})\s*[,.\-/#]?\s*(\d{{4}}))?',
+                t, re.I
+            )
+            if unified_match:
+                raw_text += " " + t
+                if unified_match.group(1):
+                    cand_roman = normalize_roman(unified_match.group(1))
+                    if cand_roman.lower() not in ['edisi', 'ed', 'ke', 'ini', 'bulan']:
+                        year_roman = cand_roman
+                if unified_match.group(2):
+                    edition = unified_match.group(2)
+                if unified_match.group(3) and unified_match.group(4):
+                    date_val = f"{unified_match.group(3).capitalize()} {unified_match.group(4)}"
+                break
 
-            if not date_val:
-                month_pattern = '|'.join(INDONESIAN_MONTHS)
-                date_match = re.search(rf'(?:Bulan\s*[:.\-/#]?\s*)?({month_pattern})\s*[,.\-/#]?\s*(\d{{4}})', t, re.I)
-                if date_match:
-                    month_name = date_match.group(1).capitalize()
-                    year_val = date_match.group(2)
-                    date_val = f"{month_name} {year_val}"
+    # Strategy 2: If not completely resolved, extract from lines containing Tahun/Edisi/Bulan
+    if not edition or not date_val:
+        for item in reversed(lines):
+            t = item['text'].strip()
+            t_low = t.lower()
+            if 'tahun' in t_low or 'edisi' in t_low or 'bulan' in t_low:
+                raw_text += " " + t
 
-    # Priority 2: Fallback searches across all lines
+                # Roman Year after 'Tahun'
+                if not year_roman:
+                    roman_match = re.search(r'Tahun\s*[:.\-/#]?\s*([IVXLCDMjl1\|!]+)(?:\s+(?:Edisi|Ed\.?)|$)', t, re.I)
+                    if roman_match:
+                        cand = roman_match.group(1)
+                        if cand.lower() not in ['edisi', 'ed', 'ke', 'ini', 'bulan']:
+                            year_roman = normalize_roman(cand)
+
+                # Edition (preceded by Edisi or Ed, avoiding random numbers)
+                if not edition:
+                    ed_match = re.search(r'\b(?:Edisi|Ed\.?)\s*[:.\-/#]?\s*(?:ke-?)?\s*(\d+)', t, re.I)
+                    if ed_match:
+                        edition = ed_match.group(1)
+
+                # Date (Month + 4-digit Year)
+                if not date_val:
+                    date_match = re.search(rf'(?:Bulan\s*[:.\-/#]?\s*)?({month_pattern})\s*[,.\-/#]?\s*(\d{{4}})', t, re.I)
+                    if date_match:
+                        date_val = f"{date_match.group(1).capitalize()} {date_match.group(2)}"
+
+    # Strategy 3: General fallback across all lines from bottom up
     if not edition:
         for item in reversed(lines):
-            edisi_match = re.search(r'(?:Edisi|Ed\.?|Nomor|No\.?)\s*[:.\-/#]?\s*(?:ke-?)?\s*(\d+)', item['text'], re.I)
-            if edisi_match:
-                edition = edisi_match.group(1)
+            t = item['text'].strip()
+            ed_match = re.search(r'\b(?:Edisi|Ed\.?)\s*[:.\-/#]?\s*(?:ke-?)?\s*(\d+)', t, re.I)
+            if ed_match:
+                edition = ed_match.group(1)
                 break
 
     if not date_val:
         for item in reversed(lines):
-            month_pattern = '|'.join(INDONESIAN_MONTHS)
-            date_match = re.search(rf'({month_pattern})\s*[,.\-/#]?\s*(\d{{4}})', item['text'], re.I)
+            t = item['text'].strip()
+            date_match = re.search(rf'\b({month_pattern})\s*[,.\-/#]?\s*(\d{{4}})', t, re.I)
             if date_match:
                 date_val = f"{date_match.group(1).capitalize()} {date_match.group(2)}"
                 break
 
-    return edition, date_val, raw_text.strip()
+    return edition, date_val, raw_text.strip(), year_roman
 
 
 def parse_articles(sidebar_lines):
