@@ -13,6 +13,14 @@ def send_to_gas(gas_url: str, payload: dict, max_retries: int = 3) -> dict:
         try:
             resp = requests.post(clean_url, json=payload, timeout=45)
             if resp.status_code == 200:
+                # Check if Google returned an HTML sign-in/access prompt instead of JSON
+                text_start = resp.text.strip().lower()[:150]
+                if "<html" in text_start or "<!doctype" in text_start:
+                    return {
+                        "status": "error",
+                        "http_code": 403,
+                        "message": "Google memerlukan izin akses. Pastikan akses Web App disetel ke 'Siapa saja (Anyone)' di Google Apps Script."
+                    }
                 try:
                     data = resp.json()
                     data["http_code"] = resp.status_code

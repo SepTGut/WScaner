@@ -1,9 +1,12 @@
 const DATA_START_ROW = 6;
 
 function getTargetSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = null;
+  try {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {}
   if (!ss) {
-    // Fallback if standalone script
+    // Fallback for standalone web app execution
     ss = SpreadsheetApp.openById("1fcBQJNoGU6bO1RcXEMiNCW5UB450VHmLTMtWPfDumFw");
   }
   return ss.getActiveSheet() || ss.getSheets()[0];
@@ -32,6 +35,13 @@ function doGet(e) {
 
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "No post data received"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const sheet = getTargetSheet();
     const data = JSON.parse(e.postData.contents);
     
