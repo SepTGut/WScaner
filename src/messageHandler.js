@@ -15,8 +15,8 @@ function recordBotSentMessage(msgId) {
   }
 }
 
-function getTutorialText() {
-  return `📖 *PANDUAN PENGGUNAAN WSCANER* 📖\n\n` +
+function getTutorialText(isSelfChat = false) {
+  let tuto = `📖 *PANDUAN PENGGUNAAN WSCANER* 📖\n\n` +
     `1️⃣ *Mulai Pemindaian:* Ketik *#start*\n` +
     `   • Scanner aktif & sesi log baru dibuat.\n\n` +
     `2️⃣ *Kirim Foto Buletin/Majalah:*\n` +
@@ -28,13 +28,20 @@ function getTutorialText() {
     `   • Mendapatkan link langsung ke Google Sheet hasil rekap.\n\n` +
     `4️⃣ *Unduh Log Sesi:* Ketik *#log*\n` +
     `   • Mengunduh file log (.log) sesi scanner saat ini / sesi terakhir.\n\n` +
-    `5️⃣ *Selesai / Nonaktifkan:* Ketik *#stop*\n` +
-    `   • Mengakhiri sesi pemindaian dan menutup file log.\n\n` +
-    `👥 *Kelola Nomor Izin (Khusus Chat Diri Sendiri):*\n` +
-    `• *add <nomor>* - Tambah nomor yang diizinkan (misal: *add +62 812 3456 7890*)\n` +
-    `• *rem <nomor>* - Hapus nomor dari daftar izin\n` +
-    `• *list* - Lihat daftar nomor yang diizinkan\n\n` +
-    `💡 *Tips:* Ketik *#tuto* kapan saja untuk membaca kembali panduan ini.`;
+    `5️⃣ *Cek Status:* Ketik *#status*\n` +
+    `   • Mengetahui apakah scanner sedang aktif atau berhenti.\n\n` +
+    `6️⃣ *Selesai / Nonaktifkan:* Ketik *#stop*\n` +
+    `   • Mengakhiri sesi pemindaian dan menutup file log.\n\n`;
+
+  if (isSelfChat) {
+    tuto += `🛠️ *Menu Manajemen User (Khusus IT):*\n` +
+      `• *add <nomor>* - Tambah akses user (misal: *add +62 812 3456 7890*)\n` +
+      `• *rem <nomor>* - Cabut akses user dari daftar izin\n` +
+      `• *list* - Lihat daftar seluruh user yang memiliki izin\n\n`;
+  }
+
+  tuto += `💡 *Tips:* Ketik *#tuto* kapan saja untuk membaca kembali panduan ini.`;
+  return tuto;
 }
 
 function formatSuccessReply(data) {
@@ -285,7 +292,7 @@ async function handleMessage(sock, msg) {
     sessionLogger.logToSession('🟢 Sesi scanner diaktifkan oleh user.');
     console.log(`🟢 [DEBUG] Perintah START diterima! Mengaktifkan scanner & memulai sesi log.`);
     await sendBotReply(sock, remoteJid, {
-      text: `🟢 *Scanner Ulul Albab AKTIF!*\nSesi baru telah dimulai & pencatatan log aktif.\n\n` + getTutorialText()
+      text: `🟢 *Scanner Ulul Albab AKTIF!*\nSesi baru telah dimulai & pencatatan log aktif.\n\n` + getTutorialText(isSelfChat)
     }, { quoted: msg });
     console.log('======================================================\n');
     return;
@@ -351,18 +358,18 @@ async function handleMessage(sock, msg) {
   if (isCmd(config.TUTO_COMMAND)) {
     console.log(`📖 [DEBUG] Perintah TUTO diterima.`);
     await sendBotReply(sock, remoteJid, {
-      text: getTutorialText()
+      text: getTutorialText(isSelfChat)
     }, { quoted: msg });
     console.log('======================================================\n');
     return;
   }
 
-  // 3.7 Handle Add Number (Owner Self-Chat Only)
+  // 3.7 Handle Add Number (IT Only)
   if (lowerText.startsWith('add') || lowerText.startsWith('#add')) {
     if (!isSelfChat) {
-      console.log('⛔ [SECURITY] Percobaan perintah ADD dari luar chat diri sendiri!');
+      console.log('⛔ [SECURITY] Percobaan perintah ADD dari akun non-IT!');
       await sendBotReply(sock, remoteJid, {
-        text: '⛔ *Akses Ditolak!*\nPerintah menambah nomor hanya dapat dilakukan oleh Owner di chat diri sendiri.'
+        text: '⛔ *Akses Ditolak!*\nPerintah menambah akses user hanya dapat dilakukan oleh IT di chat diri sendiri.'
       }, { quoted: msg });
       return;
     }
@@ -370,7 +377,7 @@ async function handleMessage(sock, msg) {
     const targetNum = text.replace(/^#?add\s*/i, '').trim();
     if (!targetNum) {
       await sendBotReply(sock, remoteJid, {
-        text: 'ℹ️ *Format Perintah ADD:*\nKetik *add <nomor>* untuk menambahkan nomor yang diizinkan.\nContoh: *add +62 812 3456 7890*'
+        text: 'ℹ️ *Format Perintah ADD (IT):*\nKetik *add <nomor>* untuk memberi izin kepada user.\nContoh: *add +62 812 3456 7890*'
       }, { quoted: msg });
       return;
     }
@@ -381,22 +388,22 @@ async function handleMessage(sock, msg) {
         text: `❌ *Gagal Menambahkan:* ${res.error}`
       }, { quoted: msg });
     } else {
-      sessionLogger.logToSession(`➕ Owner menambahkan nomor izin: +${res.number}`);
+      sessionLogger.logToSession(`➕ IT menambahkan akses user: +${res.number}`);
       const listStr = res.numbers.map((n, i) => `${i + 1}. +${n}`).join('\n');
       await sendBotReply(sock, remoteJid, {
-        text: `✅ *Nomor Berhasil Ditambahkan!*\n\nNomor: *+${res.number}*\n\n📋 *Daftar Nomor Diizinkan (${res.numbers.length}):*\n${listStr}`
+        text: `✅ *Akses User Berhasil Ditambahkan!*\n\nNomor: *+${res.number}*\n\n📋 *Daftar User Terdaftar (${res.numbers.length}):*\n${listStr}`
       }, { quoted: msg });
     }
     console.log('======================================================\n');
     return;
   }
 
-  // 3.8 Handle Remove Number (Owner Self-Chat Only)
+  // 3.8 Handle Remove Number (IT Only)
   if (lowerText.startsWith('rem') || lowerText.startsWith('#rem') || lowerText.startsWith('remove') || lowerText.startsWith('#remove')) {
     if (!isSelfChat) {
-      console.log('⛔ [SECURITY] Percobaan perintah REMOVE dari luar chat diri sendiri!');
+      console.log('⛔ [SECURITY] Percobaan perintah REMOVE dari akun non-IT!');
       await sendBotReply(sock, remoteJid, {
-        text: '⛔ *Akses Ditolak!*\nPerintah menghapus nomor hanya dapat dilakukan oleh Owner di chat diri sendiri.'
+        text: '⛔ *Akses Ditolak!*\nPerintah mencabut akses user hanya dapat dilakukan oleh IT di chat diri sendiri.'
       }, { quoted: msg });
       return;
     }
@@ -404,7 +411,7 @@ async function handleMessage(sock, msg) {
     const targetNum = text.replace(/^#(?:rem|remove)\s*|^(?:rem|remove)\s*/i, '').trim();
     if (!targetNum) {
       await sendBotReply(sock, remoteJid, {
-        text: 'ℹ️ *Format Perintah REM:*\nKetik *rem <nomor>* untuk menghapus nomor dari daftar izin.\nContoh: *rem +62 812 3456 7890*'
+        text: 'ℹ️ *Format Perintah REM (IT):*\nKetik *rem <nomor>* untuk mencabut izin user.\nContoh: *rem +62 812 3456 7890*'
       }, { quoted: msg });
       return;
     }
@@ -415,28 +422,36 @@ async function handleMessage(sock, msg) {
         text: `❌ *Gagal Menghapus:* ${res.error}`
       }, { quoted: msg });
     } else {
-      sessionLogger.logToSession(`➖ Owner menghapus nomor izin: +${res.number}`);
+      sessionLogger.logToSession(`➖ IT mencabut akses user: +${res.number}`);
       const listStr = res.numbers.length > 0
         ? res.numbers.map((n, i) => `${i + 1}. +${n}`).join('\n')
-        : '_(Tidak ada nomor luar, hanya chat diri sendiri)_';
+        : '_(Tidak ada user luar, khusus akun IT)_';
       await sendBotReply(sock, remoteJid, {
-        text: `🗑️ *Nomor Berhasil Dihapus!*\n\nNomor: *+${res.number}*\n\n📋 *Daftar Nomor Diizinkan (${res.numbers.length}):*\n${listStr}`
+        text: `🗑️ *Akses User Berhasil Dicabut!*\n\nNomor: *+${res.number}*\n\n📋 *Daftar User Terdaftar (${res.numbers.length}):*\n${listStr}`
       }, { quoted: msg });
     }
     console.log('======================================================\n');
     return;
   }
 
-  // 3.9 Handle List Numbers
+  // 3.9 Handle List Numbers (IT Only)
   if (isCmd('list') || isCmd('numbers') || isCmd('#list')) {
+    if (!isSelfChat) {
+      console.log('⛔ [SECURITY] Percobaan perintah LIST dari akun non-IT!');
+      await sendBotReply(sock, remoteJid, {
+        text: '⛔ *Akses Ditolak!*\nPerintah melihat daftar user hanya dapat dilakukan oleh IT di chat diri sendiri.'
+      }, { quoted: msg });
+      return;
+    }
+
     const list = allowedNumbers.getAllowedNumbers();
-    let reply = `📋 *Daftar Nomor Diizinkan (${list.length}):*\n\n`;
+    let reply = `📋 *Daftar User Terdaftar (${list.length}):*\n\n`;
     if (list.length > 0) {
       reply += list.map((n, i) => `${i + 1}. +${n}`).join('\n');
     } else {
-      reply += `_(Belum ada nomor luar, hanya chat diri sendiri)_`;
+      reply += `_(Belum ada user luar terdaftar, khusus akun IT)_`;
     }
-    reply += `\n\n💡 *Perintah:* Ketik *add <nomor>* untuk menambah atau *rem <nomor>* untuk menghapus.`;
+    reply += `\n\n💡 *Perintah IT:* Ketik *add <nomor>* untuk menambah atau *rem <nomor>* untuk menghapus.`;
     await sendBotReply(sock, remoteJid, { text: reply }, { quoted: msg });
     console.log('======================================================\n');
     return;

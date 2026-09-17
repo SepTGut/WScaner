@@ -87,23 +87,24 @@ async function sendStartupNotification(sock) {
 
   let notifText = `🟢 *WScaner Bot Berhasil Berjalan!*\n\n` +
     `⏰ *Waktu Aktif:* ${timeStr}\n` +
-    `📱 *Akun Bot:* +${myNumber}\n`;
+    `🛠️ *Akun IT (Owner):* +${myNumber}\n`;
 
   if (allowedList.length > 0) {
-    notifText += `👥 *Nomor Diizinkan (${allowedList.length}):*\n` +
+    notifText += `👥 *User Diizinkan (${allowedList.length}):*\n` +
       allowedList.map((n, i) => `   ${i + 1}. +${n}`).join('\n') + `\n\n`;
   } else {
-    notifText += `🔒 *Akses:* Khusus Chat Diri Sendiri (Owner)\n\n`;
+    notifText += `🔒 *Akses User:* Belum ada (Khusus IT)\n\n`;
   }
 
-  notifText += `💡 *Perintah Tersedia:*\n` +
+  notifText += `💡 *Perintah IT:*\n` +
     `• *#start* - Mulai & aktifkan pemindaian\n` +
-    `• *add <nomor>* - Tambah nomor yang diizinkan\n` +
-    `• *rem <nomor>* - Hapus nomor dari daftar izin\n` +
-    `• *list* - Lihat daftar nomor yang diizinkan\n` +
+    `• *add <nomor>* - Beri akses ke nomor user\n` +
+    `• *rem <nomor>* - Cabut akses nomor user\n` +
+    `• *list* - Lihat daftar nomor user\n` +
+    `• *#status* - Cek status scanner\n` +
     `• *#tuto* - Panduan lengkap`;
 
-  // 1. Send to self-chat (try phone JID, then LID fallback)
+  // Send ONLY to IT self-chat (try phone JID, then LID fallback)
   const selfTargets = [myJid];
   if (myLid && myLid !== myJid) {
     selfTargets.push(myLid);
@@ -114,12 +115,12 @@ async function sendStartupNotification(sock) {
     if (!target) continue;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`📬 [NOTIF] Mengirim notifikasi startup ke chat diri sendiri (${target}, percobaan ${attempt})...`);
+        console.log(`📬 [NOTIF] Mengirim notifikasi startup ke akun IT (${target}, percobaan ${attempt})...`);
         const sent = await sock.sendMessage(target, { text: notifText });
         if (sent?.key?.id) {
           recordBotSentMessage(sent.key.id);
         }
-        console.log(`✅ [NOTIF] Notifikasi startup berhasil terkirim ke chat diri sendiri!`);
+        console.log(`✅ [NOTIF] Notifikasi startup berhasil terkirim ke akun IT!`);
         sentSelf = true;
         break;
       } catch (err) {
@@ -130,23 +131,6 @@ async function sendStartupNotification(sock) {
       }
     }
     if (sentSelf) break;
-  }
-
-  // 2. Also forward notification to all allowed numbers if any exist
-  for (const num of allowedList) {
-    const targetJid = `${num}@s.whatsapp.net`;
-    if (targetJid !== myJid) {
-      try {
-        console.log(`📬 [NOTIF] Mengirim notifikasi startup ke nomor diizinkan (+${num})...`);
-        const sent = await sock.sendMessage(targetJid, { text: notifText });
-        if (sent?.key?.id) {
-          recordBotSentMessage(sent.key.id);
-        }
-        console.log(`✅ [NOTIF] Notifikasi startup berhasil terkirim ke +${num}!`);
-      } catch (e) {
-        console.warn(`⚠️ [NOTIF] Gagal mengirim notifikasi ke +${num}: ${e.message}`);
-      }
-    }
   }
 }
 
