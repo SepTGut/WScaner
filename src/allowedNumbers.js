@@ -28,10 +28,9 @@ function loadAllowedNumbers() {
     console.error('Gagal membaca allowed_numbers.json:', err.message);
   }
 
-  // Seed from config.ALLOWED_NUMBER if file is empty and config has a number
-  if (numbers.length === 0 && config.ALLOWED_NUMBER) {
-    numbers = [config.ALLOWED_NUMBER];
-    saveAllowedNumbers(numbers);
+  // Also include config.ALLOWED_NUMBER if defined in .env
+  if (config.ALLOWED_NUMBER && !numbers.includes(config.ALLOWED_NUMBER)) {
+    numbers.push(config.ALLOWED_NUMBER);
   }
 
   return [...new Set(numbers)];
@@ -50,6 +49,45 @@ function saveAllowedNumbers(numbers) {
 
 function getAllowedNumbers() {
   return loadAllowedNumbers();
+}
+
+function resolveLidToPhone(identifier) {
+  if (!identifier) return '';
+  const clean = String(identifier).replace(/[^0-9]/g, '');
+  if (!clean) return '';
+
+  // 1. Direct match in allowed list
+  const list = loadAllowedNumbers();
+  const norm = normalizePhone(clean);
+  if (list.includes(norm)) return norm;
+
+  // 2. Check auth_info for reverse LID mapping: lid-mapping-<clean>_reverse.json
+  try {
+    const reverseFile = path.join(config.AUTH_DIR, `lid-mapping-${clean}_reverse.json`);
+    if (fs.existsSync(reverseFile)) {
+      const content = fs.readFileSync(reverseFile, 'utf-8');
+      const mapped = JSON.parse(content);
+      if (mapped) {
+        return normalizePhone(mapped);
+      }
+    }
+  } catch (e) {}
+
+  return norm;
+}
+
+function resolvePhoneToLid(rawPhone) {
+  const norm = normalizePhone(rawPhone);
+  if (!norm) return '';
+  try {
+    const forwardFile = path.join(config.AUTH_DIR, `lid-mapping-${norm}.json`);
+    if (fs.existsSync(forwardFile)) {
+      const content = fs.readFileSync(forwardFile, 'utf-8');
+      const mapped = JSON.parse(content);
+      if (mapped) return String(mapped);
+    }
+  } catch (e) {}
+  return '';
 }
 
 function addNumber(rawPhone) {
@@ -116,7 +154,31 @@ function isNumberAllowed(senderNumber, remoteNumber) {
   const sNorm = normalizePhone(senderNumber);
   const rNorm = normalizePhone(remoteNumber);
 
-  return (sNorm && list.includes(sNorm)) || (rNorm && list.includes(rNorm));
+  // 1. Direct match with stored numbers
+  if ((sNorm && list.includes(sNorm)) || (rNorm && list.includes(rNorm))) {
+    return true;
+  }
+
+  // 2. Resolve sender/remote if they are WhatsApp LIDs (e.g. @lid)
+  const sResolved = resolveLidToPhone(senderNumber);
+  if (sResolved && list.includes(sResolved)) {
+    return true;
+  }
+
+  const rResolved = resolveLidToPhone(remoteNumber);
+  if (rResolved && list.includes(rResolved)) {
+    return true;
+  }
+
+  // 3. Match against LIDs of any allowed numbers
+  for (const allowedNum of list) {
+    const lid = resolvePhoneToLid(allowedNum);
+    if (lid && (lid === senderNumber || lid === remoteNumber || lid === sNorm || lid === rNorm)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 module.exports = {
@@ -124,5 +186,8 @@ module.exports = {
   getAllowedNumbers,
   addNumber,
   removeNumber,
-  isNumberAllowed
+  isNumberAllowed,
+  resolveLidToPhone,
+  resolvePhoneToLid
 };
+

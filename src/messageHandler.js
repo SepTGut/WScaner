@@ -246,9 +246,10 @@ async function handleMessage(sock, msg) {
   // Must be either your own Self-Chat OR an incoming message from the allowed phone
   const isAuthorized = isSelfChat || isIncomingFromAllowed;
   const currentNumbers = allowedNumbers.getAllowedNumbers();
+  const resolvedSenderPhone = allowedNumbers.resolveLidToPhone(senderNumber) || senderNumber;
   const authReason = isSelfChat
     ? 'Chat dengan diri sendiri (Owner)'
-    : (isIncomingFromAllowed ? `Pesan masuk dari nomor diizinkan (+${senderNumber})` : 'Nomor tidak diizinkan');
+    : (isIncomingFromAllowed ? `Pesan masuk dari nomor diizinkan (+${resolvedSenderPhone})` : 'Nomor tidak diizinkan');
 
   if (!isAuthorized) {
     return;
@@ -263,7 +264,7 @@ async function handleMessage(sock, msg) {
   console.log(`👑 Otorisasi     : ✅ DISETUJUI (${authReason})`);
   console.log(`📍 remoteJid     : ${remoteJid}`);
   console.log(`📱 Nomor Akun WA : ${myNumber || '(Belum terdeteksi)'}`);
-  console.log(`📲 Nomor Pengirim: ${isFromMe ? myNumber : senderNumber}`);
+  console.log(`📲 Nomor Pengirim: ${isFromMe ? myNumber : '+' + resolvedSenderPhone}`);
   console.log(`🔒 NOMOR DIIZINKAN: ${currentNumbers.length > 0 ? currentNumbers.map(n => '+' + n).join(', ') : '(HANYA CHAT DIRI SENDIRI)'}`);
   console.log(`📦 Tipe Pesan WA : ${messageType}`);
   console.log(`💬 Isi Teks      : "${text}"`);
