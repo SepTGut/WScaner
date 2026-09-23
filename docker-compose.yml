@@ -5,8 +5,12 @@ services:
     restart: unless-stopped
     volumes:
       # Preserves WhatsApp login so you don't need to re-scan QR on container restarts
-      - ./auth_info:/app/auth_info
-      - ./temp:/app/temp
+      - ./runtime/auth:/app/runtime/auth
+      - ./runtime/temp:/app/runtime/temp
+      - ./runtime/logs:/app/runtime/logs
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./scripts:/app/scripts
       - ./.env:/app/.env
     stdin_open: true
     tty: true

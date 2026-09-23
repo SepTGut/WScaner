@@ -4,6 +4,7 @@ FROM node:20-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
+    python-is-python3 \
     tesseract-ocr \
     tesseract-ocr-ind \
     tesseract-ocr-eng \
@@ -21,11 +22,12 @@ RUN npm install --omit=dev
 COPY requirements.txt ./
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
-# Copy modular source folders
+# Copy application folders
 COPY src/ ./src/
-COPY ocr/ ./ocr/
+COPY data/ ./data/
+COPY scripts/ ./scripts/
 
 # Create persistent directories
-RUN mkdir -p /app/temp /app/auth_info
+RUN mkdir -p /app/runtime/temp /app/runtime/auth /app/runtime/logs /app/data/downloads
 
-CMD ["node", "src/bot.js"]
+CMD ["node", "src/bot/bot.js"]
