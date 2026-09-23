@@ -53,3 +53,8 @@ desktop.ini
 *~
 *.sublime-project
 *.sublime-workspace
+
+# Graphify machine-specific paths and local cache
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/cache/
