@@ -1,174 +1,278 @@
-# WScaner - WhatsApp OCR Scanner to Google Sheet
+# 📖 WScaner
 
-Bot WhatsApp cerdas untuk memindai foto majalah/buletin dakwah **Ulul Albab - Cerdas dan Mencerahkan**, mengekstrak metadata (Edisi, Tahun Romawi, Tanggal), 3 Judul Artikel, Penulis, dan Surah, lalu menyimpannya langsung ke **Google Sheet** secara otomatis.
+<div align="center">
 
-Dilengkapi dengan arsitektur **4-Folder Bersih**, **5 Mesin OCR Fleksibel**, dan **Background Python Daemon** berlatensi rendah.
+## Automated WhatsApp OCR Scanner to Google Sheets
+
+Bot WhatsApp otomatis & cerdas untuk memindai foto majalah/buletin dakwah **Ulul Albab - Cerdas dan Mencerahkan**, mengekstrak metadata cover (_Edisi_, _Tahun Romawi_, _Tanggal_), 3 Judul Artikel, Penulis, serta Surah menggunakan OCR berkecepatan tinggi, lalu menyimpannya langsung ke **Google Sheet**.
+
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Python Version](https://img.shields.io/badge/python-%3E%3D3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Baileys WhatsApp](https://img.shields.io/badge/WhatsApp-Baileys%20v7-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://github.com/WhiskeySockets/Baileys)
+[![Groq Cloud LPU](https://img.shields.io/badge/Groq-Qwen%203.8%20Vision-F55036?style=for-the-badge&logo=groq&logoColor=white)](https://groq.com/)
+[![Google Gemini](https://img.shields.io/badge/Google-Gemini%20Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
+[![Docker & Podman](https://img.shields.io/badge/Container-Podman%20%7C%20Docker-892CA0?style=for-the-badge&logo=podman&logoColor=white)](https://podman.io/)
+
+</div>
+
+---
+
+## 📑 Daftar Isi
+
+- [🌟 Fitur Utama](#-fitur-utama)
+- [🔄 Alur Pemrosesan (Workflow)](#-alur-pemrosesan-workflow)
+- [⚡ Perbandingan 5 Mesin OCR](#-perbandingan-5-mesin-ocr)
+- [📁 Struktur Proyek (Max 4-Folder)](#-struktur-proyek-max-4-folder)
+- [⚙️ Variabel Lingkungan (`.env`)](#️-variabel-lingkungan-env)
+- [🚀 Cara Menjalankan](#-cara-menjalankan)
+- [💬 Perintah WhatsApp Bot](#-perintah-whatsapp-bot)
+- [☁️ Integrasi Google Apps Script (Clasp)](#️-integrasi-google-apps-script-clasp)
+- [🧪 Pengujian & Benchmarking](#-pengujian--benchmarking)
 
 ---
 
 ## 🌟 Fitur Utama
 
-* **Arsitektur 4-Folder Bersih (`src/`, `data/`, `runtime/`, `scripts/`):** Struktur teratur dengan kedalaman maksimal 2 lapis, menjaga sesi WhatsApp tetap awet di `runtime/auth/`.
-* **5 Pilihan Mesin OCR (Multi-Engine & Auto-Fallback):**
-  1. **Groq Cloud Vision LLM (`qwen/qwen3.8-27b`)** — Inferensi LPU super cepat (~1.2 detik), 0 MB RAM, akurasi parsing 100% tanpa regex.
-  2. **Google Gemini Vision LLM (`gemini-flash-latest`)** — Multimodal AI sangat cerdas menangani font artistik & nama majemuk.
-  3. **Windows Native OCR (`Windows.Media.Ocr`)** — Sangat cepat (~350 ms), 100% offline lokal tanpa kuota/internet, konsumsi RAM hanya ~15 MB.
-  4. **Google Drive Native OCR** — OCR bawaan Google Cloud Docs melalui konversi instan.
-  5. **Auto / Hybrid Cascade** — Menguji lokal (Windows OCR) $\rightarrow$ otomatis fallback ke Groq VLM jika gambar miring/kurang lengkap $\rightarrow$ Gemini $\rightarrow$ Google Drive.
-* **Persistent OCR Daemon:** Worker Python berjalan di latar belakang (port `5005`) sehingga pemindaian via WhatsApp merespons instan tanpa delay inisialisasi Python.
-* **Onetimeused Media Extractor:** Mendukung penyimpanan foto sekali lihat (view-once) ke folder `data/downloads/`.
-* **Integrasi Google Sheet:** Otomatis mengisi 9 kolom tabel dengan deteksi duplikasi data cover majalah.
+- **Arsitektur 4-Folder Bersih (`src/`, `data/`, `runtime/`, `scripts/`)**  
+  Struktur modular dengan nesting folder maksimal 2 lapis. Sesi login WhatsApp di `runtime/auth/` terisolasi dan tidak perlu scan ulang QR saat restrukturisasi.
+- **5 Pilihan Mesin OCR Fleksibel**  
+  Mendukung Groq Cloud VLM, Google Gemini Vision, Windows Native OCR, Google Drive Native OCR, dan mode Auto/Hybrid.
+- **Persistent OCR Daemon (Port 5005)**  
+  Background worker Python yang siap melayani request pemindaian seketika, mengeliminasi overhead inisialisasi runtime Python.
+- **Onetimeused Photo Extractor**  
+  Mampu menangkap foto sekali lihat (_view-once media_) yang dikirim pengguna dan menyimpannya secara rapi ke `data/downloads/`.
+- **Penyimpanan Otomatis 9 Kolom Google Sheets**  
+  Format tabel rapi dengan mekanisme pencegahan duplikasi data berdasarkan kombinasi Edisi, Tahun, dan Tanggal.
+- **Role-Based WhatsApp Commands**  
+  Hak akses terpisah antara administrator IT dan pengguna umum untuk operasional bot yang aman.
 
 ---
 
-## 📁 Struktur Proyek (Max 4-Folder Architecture)
+## 🔄 Alur Pemrosesan (Workflow)
 
+```mermaid
+flowchart TD
+    A[Pengguna Kirim Foto Cover WA] --> B[Baileys Bot Event Handler]
+    B --> C{Cek Izin Nomor & Status #start}
+    C -- Tidak Diizinkan --> D[Abaikan / Kirim Pesan Penolakan]
+    C -- Diizinkan --> E[Kirim ke OCR Runner]
+    E --> F{Daemon Port 5005 Aktif?}
+    F -- Ya --> G[Kirim HTTP POST ke Daemon]
+    F -- Tidak --> H[Eksekusi CLI ocr_processor.py]
+    G --> I{Mode Mesin Terpilih}
+    H --> I
+    I -- groq --> J[Groq VLM qwen3.8-27b]
+    I -- gemini --> K[Gemini Vision Flash]
+    I -- windows --> L[Windows Native OCR]
+    I -- drive --> M[Google Drive Docs OCR]
+    I -- auto --> N[Auto Cascade: Lokal -> Groq -> Gemini -> Drive]
+    J --> O[Format Output JSON Standar]
+    K --> O
+    L --> O
+    M --> O
+    N --> O
+    O --> P[Kirim Webhook ke Google Apps Script]
+    P --> Q[(Simpan ke Baris Google Sheet)]
+    Q --> R[Kirim Balasan Ringkasan ke Chat WA]
 ```
+
+---
+
+## ⚡ Perbandingan 5 Mesin OCR
+
+| Peringkat | Mesin / Model                                    | Kecepatan Rata-rata | Akurasi Majalah |  Konsumsi RAM Laptop   |       Kuota / Biaya        |     Mode Offline      |
+| :-------: | :----------------------------------------------- | :-----------------: | :-------------: | :--------------------: | :------------------------: | :-------------------: |
+| 🥇 **#1** | **Groq Cloud VLM (`qwen/qwen3.8-27b`)**          |   **~1.2 detik**    |    **100%**     |  **0 MB** (Cloud LPU)  |    Gratis (7k token/m)     |         Tidak         |
+| 🥈 **#2** | **Google Gemini Vision (`gemini-flash-latest`)** |     ~2.1 detik      |    **100%**     |  **0 MB** (Cloud AI)   | Gratis (15 RPM / 1.5k RPD) |         Tidak         |
+| 🥉 **#3** | **Windows Native OCR (`Windows.Media.Ocr`)**     |   **~0.3 detik**    |      ~85%       | **~15 MB** (Native C#) |        Tak Terbatas        | **Ya (100% Offline)** |
+|  **#4**   | **Google Drive Native OCR (Google Docs)**        |     ~3.5 detik      |      ~80%       | **0 MB** (Cloud Docs)  |     Kuota Google Drive     |         Tidak         |
+|  **#5**   | **Tesseract OCR (Lokal Linux / Container)**      |     ~2.5 detik      |      ~65%       |     ~150 - 300 MB      |        Tak Terbatas        |   **Ya (Offline)**    |
+
+> [!TIP]
+> Gunakan mode **`auto`** (`OCR_ENGINE=auto`) untuk mendapatkan kombinasi terbaik: bot memindai secepat kilat dengan Windows OCR lokal, lalu otomatis beralih ke Groq Cloud AI jika foto miring atau font teks buram.
+
+---
+
+## 📁 Struktur Proyek (Max 4-Folder)
+
+Repositori ini menerapkan aturan hierarki maksimal 4 folder utama di root level:
+
+```text
 WScaner/
 │
-├── 1. src/                       # Semua Source Code Aplikasi
-│   ├── bot/                      # Node.js WhatsApp Bot (Baileys)
-│   │   ├── bot.js                # Entry point bot
-│   │   ├── config.js             # Konfigurasi path & environment
-│   │   ├── whatsapp.js           # Siklus koneksi Baileys & QR Code
-│   │   ├── messageHandler.js     # Logika pesan, perintah, & balasan WA
+├── 1. src/                       # Seluruh Kode Sumber Aplikasi
+│   ├── bot/                      # Modul Node.js WhatsApp Bot (Baileys)
+│   │   ├── bot.js                # Entry point utama aplikasi
+│   │   ├── config.js             # Resolusi konfigurasi path & .env
+│   │   ├── whatsapp.js           # Siklus koneksi soket & QR Code
+│   │   ├── messageHandler.js     # Filter pesan, perintah, & balasan WA
 │   │   ├── ocrRunner.js          # Pemanggil daemon OCR & CLI fallback
 │   │   ├── ocrDaemon.js          # Pengelola worker daemon Python
 │   │   ├── sessionLogger.js      # Pencatat log aktivitas bot
-│   │   ├── allowedNumbers.js     # Manajemen nomor telepon yang diizinkan
-│   │   └── oneTimeUsed.js        # Ekstraktor foto sekali lihat
-│   ├── ocr/                      # Modul Python OCR & Parsing
+│   │   ├── allowedNumbers.js     # Manajemen nomor whitelist
+│   │   └── oneTimeUsed.js        # Ekstraktor foto sekali lihat (view-once)
+│   ├── ocr/                      # Modul Python OCR & Algoritma Parsing
 │   │   ├── server.py             # HTTP OCR daemon server (Port 5005)
 │   │   ├── ocr_processor.py      # Core CLI & cascading fallback pipeline
 │   │   ├── engine.py             # Windows Native OCR & Linux Tesseract
 │   │   ├── groq_engine.py        # Groq Cloud Vision LLM (qwen3.8-27b)
 │   │   ├── gemini_engine.py      # Google Gemini Vision LLM
 │   │   ├── drive_engine.py       # Google Drive Docs Native OCR
-│   │   ├── parser.py             # Regex & logika tata letak majalah
-│   │   └── gas_client.py         # Pengirim HTTP payload ke Google Apps Script
+│   │   ├── parser.py             # Regex & logika partisi majalah 2 kolom
+│   │   └── gas_client.py         # Klien HTTP payload ke Google Apps Script
 │   └── gas/                      # Google Apps Script Source
 │       ├── Kode.js               # Webhook doPost() & penulisan ke Google Sheet
-│       └── appsscript.json       # Manifest runtime Google Apps Script
+│       └── appsscript.json       # Manifest runtime Apps Script
 │
-├── 2. data/                      # Dataset & Penyimpanan Berkas
+├── 2. data/                      # Dataset & Penyimpanan Berkas Media
 │   ├── samples/                  # Cover majalah contoh pengujian (Example0-3)
-│   ├── scans/                    # Pindaian terverifikasi & manifest.json
-│   └── downloads/                # Folder tujuan unduhan foto sekali lihat
+│   ├── scans/                    # 13 Pindaian terverifikasi & manifest.json
+│   └── downloads/                # Folder output unduhan foto sekali lihat
 │
-├── 3. runtime/                   # Sesi, Log & Cache Sementara (Diabaikan Git)
-│   ├── auth/                     # Kredensial login Baileys WhatsApp
-│   ├── logs/                     # Catatan log sesi bot
+├── 3. runtime/                   # State, Session & Volatile Cache (Diabaikan Git)
+│   ├── auth/                     # Kredensial autentikasi Baileys WhatsApp
+│   ├── logs/                     # Catatan log sesi WhatsApp
 │   └── temp/                     # File sementara proses pindaian
 │
 └── 4. scripts/                   # Alat Bantu, Migrasi & Pengujian
-    ├── downloadDriveScans.js     # Pengunduh arsip pindaian Google Drive
-    ├── populate_sheet.py         # Skrip pengisi massal ke Google Sheets
-    └── test_tuned_ocr.py         # Pengujian batch akurasi OCR pada dataset
+    ├── downloadDriveScans.js     # Pengunduh dataset pindaian dari Google Drive
+    ├── populate_sheet.py         # Pengisi massal data terverifikasi ke Sheets
+    └── test_tuned_ocr.py         # Skrip pengujian akurasi batch dataset
 ```
 
 ---
 
-## ⚙️ Konfigurasi Lingkungan (`.env`)
+## ⚙️ Variabel Lingkungan (`.env`)
 
-Salin file `.env.example` menjadi `.env`, lalu lengkapi kredensial:
+Buat file `.env` di root direktori (atau salin dari `.env.example`):
 
-```env
-# Konfigurasi WhatsApp Bot
-ALLOWED_NUMBER=628xxxxxxxxxx
-START_COMMAND=#start
-STOP_COMMAND=#stop
-STATUS_COMMAND=#status
-LOG_COMMAND=#log
-LINK_COMMAND=#link
-TUTO_COMMAND=#tuto
-
-# Integrasi Google Spreadsheet & Apps Script
-SPREADSHEET_URL=https://docs.google.com/spreadsheets/d/your-spreadsheet-id/edit
-GAS_WEBHOOK_URL=https://script.google.com/macros/s/your-deployment-id/exec
-
-# Pilihan Mesin Default: windows | groq | gemini | drive | auto
-OCR_ENGINE=groq
-
-# Kredensial Groq Cloud (Gratis)
-GROQ_API_KEY=gsk_your_groq_api_key_here
-GROQ_MODEL=qwen/qwen3.8-27b
-
-# Kredensial Google Gemini (Gratis)
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-flash-latest
-
-# Konfigurasi Daemon OCR
-OCR_PORT=5005
-```
+| Variabel          |  Tipe  |    Wajib    | Keterangan & Nilai Default                                                           |
+| :---------------- | :----: | :---------: | :----------------------------------------------------------------------------------- |
+| `ALLOWED_NUMBER`  | String |     Ya      | Nomor WhatsApp admin IT (format: `628xxxxxxxxxx`).                                   |
+| `START_COMMAND`   | String |    Tidak    | Perintah aktivasi bot (default: `#start`).                                           |
+| `STOP_COMMAND`    | String |    Tidak    | Perintah nonaktivasi bot (default: `#stop`).                                         |
+| `STATUS_COMMAND`  | String |    Tidak    | Perintah cek status bot (default: `#status`).                                        |
+| `LOG_COMMAND`     | String |    Tidak    | Perintah cek log aktivitas (default: `#log`).                                        |
+| `LINK_COMMAND`    | String |    Tidak    | Perintah minta tautan spreadsheet (default: `#link`).                                |
+| `TUTO_COMMAND`    | String |    Tidak    | Perintah panduan penggunaan (default: `#tuto`).                                      |
+| `SPREADSHEET_URL` | String |     Ya      | URL lengkap dokumen Google Sheets tujuan.                                            |
+| `GAS_WEBHOOK_URL` | String |     Ya      | URL deployment Web App Google Apps Script.                                           |
+| `OCR_ENGINE`      |  Enum  |    Tidak    | Pilihan default: `windows`, `groq`, `gemini`, `drive`, `auto` (default: `windows`).  |
+| `GROQ_API_KEY`    | String | Kondisional | API Key dari [console.groq.com](https://console.groq.com/). Wajib jika memakai Groq. |
+| `GROQ_MODEL`      | String |    Tidak    | Model Groq Vision (default: `qwen/qwen3.8-27b`).                                     |
+| `GEMINI_API_KEY`  | String | Kondisional | API Key dari Google AI Studio. Wajib jika memakai Gemini.                            |
+| `GEMINI_MODEL`    | String |    Tidak    | Model Gemini Vision (default: `gemini-flash-latest`).                                |
+| `OCR_PORT`        | Number |    Tidak    | Port background daemon server (default: `5005`).                                     |
 
 ---
 
-## 🚀 Panduan Menjalankan
+## 🚀 Cara Menjalankan
 
-### Cara 1: Menggunakan File Batch (1-Click di Windows)
+### Opsi 1: Menggunakan File Batch (1-Klik di Windows — Sangat Direkomendasikan)
 
-* **`start.bat`:** Menampilkan menu interaktif 5 pilihan mesin OCR dan langsung memulai bot WhatsApp.
-* **`scan.bat`:** Menguji pindaian dokumen secara manual dari terminal:
-  ```cmd
-  scan.bat data/samples/Example0.jpg.jpeg --groq
-  ```
-* **`onetime.bat`:** Mengunduh foto sekali lihat ke `data/downloads/`.
+Tersedia file batch siap pakai di root proyek:
+
+1. **[`start.bat`](start.bat)**  
+   Menampilkan menu interaktif 5 pilihan mesin OCR dan langsung menyalakan bot WhatsApp beserta background worker Python.
+2. **[`scan.bat`](scan.bat)**  
+   Menjalankan pemindaian gambar secara langsung dari terminal tanpa perlu membuka WhatsApp:
+
+   ```cmd
+   scan.bat data/samples/Example0.jpg.jpeg --groq
+   ```
+
+3. **[`onetime.bat`](onetime.bat)**  
+   Mengaktifkan mode ekstraksi foto sekali lihat dan menyimpannya ke `data/downloads/`.
 
 ---
 
-### Cara 2: Menjalankan via Terminal (CLI)
+### Opsi 2: Menjalankan via Terminal (CLI)
 
-1. **Jalankan Bot WhatsApp:**
+1. **Instal dependensi:**
+
+   ```bash
+   npm install
+   pip install -r requirements.txt
+   ```
+
+2. **Jalankan bot:**
+
    ```bash
    npm start
    ```
-2. **Scan QR Code:**
-   Jika baru pertama kali atau sesi terputus, pindai QR code yang tampil di terminal via WhatsApp (**Pengaturan > Perangkat Tertaut**).
-3. **Kirim Perintah di WhatsApp:**
-   * Ketik `#start` untuk mengaktifkan penerimaan foto.
-   * Kirim foto majalah Ulul Albab — bot akan memproses dan mengembalikan ringkasan data serta link spreadsheet.
+
+3. **Tautkan WhatsApp:**  
+   Pindai QR Code di terminal menggunakan WhatsApp di ponsel Anda (**Pengaturan > Perangkat Tertaut > Tautkan Perangkat**).
 
 ---
 
-### Cara 3: Docker / Podman Container
+### Opsi 3: Menjalankan via Container (Docker / Podman)
 
-Container telah dilengkapi dengan runtime Node.js, Python, dan persistensi volume untuk menjaga sesi WhatsApp login:
+Proyek ini telah dilengkapi dengan `Dockerfile` dan `docker-compose.yml` multi-runtime:
 
 ```bash
-# Menggunakan Podman:
-start-podman.bat
+# Menggunakan Podman (Klik ganda start-podman.bat atau jalankan):
+podman machine start
+npm run podman:up
+npm run podman:logs
 
-# Atau perintah standar Docker Compose:
-npm run docker:up     # Jalankan di background
-npm run docker:logs   # Lihat log & scan QR
-npm run docker:down   # Matikan container
+# Atau menggunakan Docker:
+npm run docker:up
+npm run docker:logs
+npm run docker:down
 ```
 
 ---
 
-## ☁️ Deployment Google Apps Script (Clasp)
+## 💬 Perintah WhatsApp Bot
 
-Google Apps Script berada di folder `src/gas/` dan dikonfigurasi melalui `.clasp.json`:
+| Perintah       |      Hak Akses       | Deskripsi                                                  |
+| :------------- | :------------------: | :--------------------------------------------------------- |
+| `#start`       | IT Admin & Whitelist | Mengaktifkan penerimaan foto pindaian majalah.             |
+| `#stop`        | IT Admin & Whitelist | Menonaktifkan sementara penerimaan pindaian.               |
+| `#status`      |        Semua         | Menampilkan status aktif bot dan mesin OCR yang digunakan. |
+| `#link`        |        Semua         | Mengirimkan tautan langsung ke Google Spreadsheet.         |
+| `#tuto`        |        Semua         | Menampilkan panduan cara foto cover majalah yang benar.    |
+| `#log`         |       IT Admin       | Mengirimkan ringkasan aktivitas sesi dan statistik scan.   |
+| `#add <nomor>` |       IT Admin       | Menambahkan nomor telepon baru ke daftar whitelist.        |
+| `#rem <nomor>` |       IT Admin       | Menghapus nomor telepon dari daftar whitelist.             |
+| `#list`        |       IT Admin       | Menampilkan seluruh nomor telepon dalam daftar whitelist.  |
+
+---
+
+## ☁️ Integrasi Google Apps Script (Clasp)
+
+Modul Google Apps Script dikelola melalui Google Clasp di folder `src/gas/`:
 
 ```bash
-# Periksa status file yang dipantau
+# Memeriksa status file yang dipantau Clasp
 npx @google/clasp status
 
-# Push kode ke Google Apps Script
-npx @google/clasp push
+# Melakukan deploy / push kode ke Google Cloud
+npx @google/clasp push -f
 ```
 
 ---
 
 ## 🧪 Pengujian & Benchmarking
 
+Uji performa dan fungsionalitas sistem secara lokal menggunakan perintah berikut:
+
 ```bash
-# Uji pindaian satu gambar contoh via Groq:
+# Uji pindaian satu contoh gambar via npm script:
 npm run test:ocr
 
-# Uji akurasi batch pada seluruh dataset pindaian:
+# Uji akurasi seluruh 13 dataset pindaian cover majalah:
 python scripts/test_tuned_ocr.py
 
 # Kirim seluruh pindaian terverifikasi ke Google Sheets:
 python scripts/populate_sheet.py
 ```
+
+---
+
+<div align="center">
+
+Dibuat dengan dedikasi untuk Majalah Dakwah **Ulul Albab** • Didukung oleh DeepMind & Google Cloud Technology
+
+</div>
