@@ -86,6 +86,26 @@ function resolvePhoneToLid(rawPhone) {
       const mapped = JSON.parse(content);
       if (mapped) return String(mapped);
     }
+
+    // Fallback: search reverse LID files in auth_info
+    if (fs.existsSync(config.AUTH_DIR)) {
+      const files = fs.readdirSync(config.AUTH_DIR);
+      for (const f of files) {
+        if (f.startsWith('lid-mapping-') && f.endsWith('_reverse.json')) {
+          const fullPath = path.join(config.AUTH_DIR, f);
+          const content = fs.readFileSync(fullPath, 'utf-8');
+          if (content.includes(norm)) {
+            try {
+              const mapped = JSON.parse(content);
+              if (normalizePhone(mapped) === norm) {
+                const lid = f.replace('lid-mapping-', '').replace('_reverse.json', '');
+                return lid;
+              }
+            } catch (e) {}
+          }
+        }
+      }
+    }
   } catch (e) {}
   return '';
 }

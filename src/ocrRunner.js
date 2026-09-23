@@ -1,15 +1,24 @@
 const { exec } = require('child_process');
 const path = require('path');
+const axios = require('axios');
 const config = require('./config');
+const ocrDaemon = require('./ocrDaemon');
 
-function runOCR(filePath) {
+async function runOCRViaDaemon(filePath) {
+  const res = await axios.post(`${ocrDaemon.SERVER_URL}/ocr`, {
+    image_path: path.resolve(filePath),
+    include_drive_image: true
+  }, { timeout: 15000 });
+  return res.data;
+}
+
+function runOCRViaCLI(filePath) {
   return new Promise((resolve, reject) => {
     const ocrScript = path.join(config.ROOT_DIR, 'ocr', 'ocr_processor.py');
-    const gasParam = config.GAS_WEBHOOK_URL ? `--gas-url "${config.GAS_WEBHOOK_URL}"` : '';
-    const cmd = `python "${ocrScript}" "${filePath}" ${gasParam}`;
+    const pythonCmd = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+    const cmd = `${pythonCmd} "${ocrScript}" "${filePath}" --no-gas --keep-b64`;
 
-    exec(cmd, { cwd: config.ROOT_DIR, maxBuffer: 15 * 1024 * 1024 }, (error, stdout, stderr) => {
-      // First attempt: try finding JSON block even if python emitted deprecation/other warnings
+    exec(cmd, { cwd: config.ROOT_DIR, maxBuffer: 30 * 1024 * 1024 }, (error, stdout, stderr) => {
       const rawOutput = (stdout || '').trim();
       const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
 
@@ -18,7 +27,7 @@ function runOCR(filePath) {
           const result = JSON.parse(jsonMatch[0]);
           return resolve(result);
         } catch (parseErr) {
-          // If match fails parsing, continue to error handler
+          // Continue to error handler
         }
       }
 
@@ -31,4 +40,63 @@ function runOCR(filePath) {
   });
 }
 
-module.exports = { runOCR };
+/**
+ * Fast OCR Runner:
+ * 1. Tries local persistent Python daemon (latensi ~300-500ms).
+ * 2. Falls back to CLI execution if daemon is inactive.
+ */
+async function runOCR(filePath) {
+  try {
+    return await runOCRViaDaemon(filePath);
+  } catch (daemonErr) {
+    console.warn(`[OCR RUNNER] Daemon tidak merespons (${daemonErr.message}), beralih ke CLI fallback...`);
+    return await runOCRViaCLI(filePath);
+  }
+}
+
+/**
+ * Asynchronous sync to Google Apps Script (Drive + Sheet).
+ * Non-blocking, executes in background.
+ */
+async function syncToGAS(payload, maxRetries = 2) {
+  if (!config.GAS_WEBHOOK_URL || !config.GAS_WEBHOOK_URL.trim()) {
+    return { status: 'skipped', message: 'No GAS URL configured' };
+  }
+
+  const cleanUrl = config.GAS_WEBHOOK_URL.trim();
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const resp = await axios.post(cleanUrl, payload, {
+        timeout: 45000,
+        maxRedirects: 5,
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (typeof resp.data === 'string' && (resp.data.includes('<html') || resp.data.includes('<!DOCTYPE'))) {
+        return {
+          status: 'error',
+          http_code: 403,
+          message: 'Google memerlukan izin akses Web App (Pastikan disetel ke Anyone/Siapa Saja)'
+        };
+      }
+
+      const data = typeof resp.data === 'object' ? resp.data : { raw: resp.data };
+      data.http_code = resp.status;
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
+    }
+  }
+
+  return {
+    status: 'error',
+    message: lastErr ? lastErr.message : 'Max retries exceeded'
+  };
+}
+
+module.exports = { runOCR, syncToGAS };

@@ -12,12 +12,19 @@ function getTargetSheet() {
   return ss.getActiveSheet() || ss.getSheets()[0];
 }
 
+var CACHED_FOLDER = null;
+
 function getOrCreateFolder(folderName) {
+  if (CACHED_FOLDER) {
+    return CACHED_FOLDER;
+  }
   const folders = DriveApp.getFoldersByName(folderName);
   if (folders.hasNext()) {
-    return folders.next();
+    CACHED_FOLDER = folders.next();
+    return CACHED_FOLDER;
   }
-  return DriveApp.createFolder(folderName);
+  CACHED_FOLDER = DriveApp.createFolder(folderName);
+  return CACHED_FOLDER;
 }
 
 function getNextRow(sheet) {
@@ -69,7 +76,6 @@ function doPost(e) {
         const fileName = data.image_name || ("scan_" + (edition !== "-" ? "Ed" + edition + "_" : "") + Date.now() + ".jpg");
         const blob = Utilities.newBlob(decoded, data.image_mime || "image/jpeg", fileName);
         const file = folder.createFile(blob);
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         fileUrl = file.getUrl();
       } catch (driveErr) {
         Logger.log("Drive save error: " + driveErr.toString());
@@ -101,11 +107,13 @@ function doPost(e) {
       const dataRange = sheet.getRange(startRow, 1, rows.length, 9);
       dataRange.setValues(rows);
 
-      // Formatting: vertical center, center align metadata, left align text
+      // Fast single-pass formatting
       dataRange.setVerticalAlignment("middle");
-      sheet.getRange(startRow, 1, rows.length, 5).setHorizontalAlignment("center"); // No, TimeStamp, Date, Tahun, Edition
-      sheet.getRange(startRow, 6, rows.length, 2).setHorizontalAlignment("left").setWrap(true); // Article, Author
-      sheet.getRange(startRow, 8, rows.length, 2).setHorizontalAlignment("center"); // Surah, Link Foto
+      const alignments = rows.map(function() {
+        return ["center", "center", "center", "center", "center", "left", "left", "center", "center"];
+      });
+      dataRange.setHorizontalAlignments(alignments);
+      sheet.getRange(startRow, 6, rows.length, 2).setWrap(true);
     }
 
     return ContentService.createTextOutput(JSON.stringify({ 

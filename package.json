@@ -5,16 +5,22 @@
   "main": "src/bot.js",
   "scripts": {
     "start": "node src/bot.js",
+    "onetime": "node src/oneTimeUsed.js",
     "test:ocr": "python ocr/ocr_processor.py Data/Example0.jpg.jpeg",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d",
     "docker:logs": "docker compose logs -f",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "podman:build": "podman compose build",
+    "podman:up": "podman compose up -d",
+    "podman:logs": "podman compose logs -f",
+    "podman:down": "podman compose down"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "axios": "^1.20.0",
     "dotenv": "^17.4.2",
+    "heic-convert": "^2.1.0",
     "pino": "^10.3.1",
     "qrcode-terminal": "^0.12.0"
   }

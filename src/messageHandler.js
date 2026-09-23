@@ -1,10 +1,29 @@
 const { downloadMediaMessage, jidNormalizedUser } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
+let convertHeic = null;
+try {
+  convertHeic = require('heic-convert');
+} catch (e) {}
 const config = require('./config');
-const { runOCR } = require('./ocrRunner');
+const { runOCR, syncToGAS } = require('./ocrRunner');
 const sessionLogger = require('./sessionLogger');
 const allowedNumbers = require('./allowedNumbers');
+
+const IPHONE_IMAGE_EXTENSIONS = ['.heic', '.heif', '.dng', '.tiff', '.tif', '.jpg', '.jpeg', '.png', '.webp'];
+
+function isIphoneOrStandardImage(mimetype = '', fileName = '') {
+  const mime = (mimetype || '').toLowerCase();
+  const ext = path.extname((fileName || '').toLowerCase());
+  return (
+    mime.startsWith('image/') ||
+    mime.includes('heic') ||
+    mime.includes('heif') ||
+    mime.includes('dng') ||
+    mime.includes('tiff') ||
+    IPHONE_IMAGE_EXTENSIONS.includes(ext)
+  );
+}
 
 let isScanningActive = false;
 const botSentMessageIds = new Set();
@@ -44,7 +63,7 @@ function getTutorialText(isSelfChat = false) {
   return tuto;
 }
 
-function formatSuccessReply(data) {
+function formatSuccessReply(data, isPendingGas = false) {
   let reply = `✅ *Scan Berhasil!*\n\n`;
   const edisiStr = data.edition
     ? `${data.edition}${data.year_roman ? ` (Tahun ${data.year_roman})` : ''}`
@@ -69,7 +88,13 @@ function formatSuccessReply(data) {
     reply += `💡 *Tips Akurasi:* Bagian bawah cover (Edisi/Tahun) tidak terdeteksi. Pastikan seluruh lembar cover difoto penuh dan tidak terpotong.\n\n`;
   }
 
-  if (data.gas_response) {
+  if (isPendingGas) {
+    if (config.GAS_WEBHOOK_URL) {
+      reply += `📊 *Google Sheet & Drive:* ⏳ Menyimpan di latar belakang...\n_(Reaksi ✅ akan muncul jika data sudah tersimpan)_\n`;
+    } else {
+      reply += `ℹ️ (Google Sheet URL belum disetel di .env)\n`;
+    }
+  } else if (data.gas_response) {
     if (data.gas_response.status === 'success') {
       reply += `📊 *Tersimpan ke Google Sheet:* ✅ SUKSES\n`;
       if (data.gas_response.drive_file_url) {
@@ -124,14 +149,76 @@ function unwrapMessage(msg) {
     ''
   ).trim();
 
-  const isImage = !!(m?.imageMessage || (m?.documentMessage && m?.documentMessage?.mimetype?.startsWith('image/')));
+  const isImage = !!(
+    m?.imageMessage ||
+    (m?.documentMessage && isIphoneOrStandardImage(m.documentMessage.mimetype, m.documentMessage.fileName))
+  );
   const rawImage = m?.imageMessage || m?.documentMessage;
 
   return { text, isImage, rawImage, messageType };
 }
 
 const imageQueue = [];
-let isProcessingQueue = false;
+const gasQueue = [];
+let isProcessingGas = false;
+const OCR_CONCURRENCY_LIMIT = 2;
+let activeOcrWorkers = 0;
+
+function enqueueGASUpload(task) {
+  gasQueue.push(task);
+  processGASQueue().catch((err) => console.error('GAS Queue error:', err));
+}
+
+async function processGASQueue() {
+  if (isProcessingGas) return;
+  isProcessingGas = true;
+
+  while (gasQueue.length > 0) {
+    const task = gasQueue.shift();
+    const { sock, remoteJid, replyKey, ocrData, quotedMsg } = task;
+
+    try {
+      sessionLogger.logToSession(`📊 Mulai sinkronisasi Google Sheet untuk Edisi ${ocrData.edition || '-'}...`);
+      const tGasStart = Date.now();
+      const gasRes = await syncToGAS(ocrData);
+      const gasDur = ((Date.now() - tGasStart) / 1000).toFixed(1);
+      ocrData.gas_response = gasRes;
+
+      if (gasRes.status === 'success') {
+        sessionLogger.logToSession(`📊 Sukses simpan ke Google Sheet (${gasDur}s) - Drive: ${gasRes.drive_file_url ? 'OK' : 'None'}`);
+        console.log(`✅ [GAS SUCCESS] Data tersimpan ke Spreadsheet & Drive dalam ${gasDur}s`);
+        if (replyKey) {
+          try {
+            await sock.sendMessage(remoteJid, {
+              react: { text: '✅', key: replyKey }
+            });
+          } catch (reactErr) {
+            // Ignore reaction error
+          }
+        }
+      } else if (gasRes.status !== 'skipped') {
+        const errReason = gasRes.message || gasRes.error || `HTTP ${gasRes.http_code || 500}`;
+        sessionLogger.logToSession(`❌ Gagal simpan Google Sheet: ${errReason}`);
+        console.error(`❌ [GAS ERROR] Gagal simpan: ${errReason}`);
+        if (replyKey) {
+          try {
+            await sock.sendMessage(remoteJid, {
+              react: { text: '⚠️', key: replyKey }
+            });
+          } catch (reactErr) {}
+        }
+        await sendBotReply(sock, remoteJid, {
+          text: `⚠️ *Gagal Menyimpan ke Google Sheet:*\n${errReason}\n\n_(Hasil scan tetap tersimpan di log lokal bot)_`
+        }, { quoted: quotedMsg });
+      }
+    } catch (err) {
+      console.error('❌ [GAS SYNC ERROR]', err.message);
+      sessionLogger.logToSession(`❌ Exception sync GAS: ${err.message}`);
+    }
+  }
+
+  isProcessingGas = false;
+}
 
 async function handleSingleImage(sock, item) {
   const { msg, remoteJid } = item;
@@ -142,16 +229,40 @@ async function handleSingleImage(sock, item) {
       fs.mkdirSync(config.TEMP_DIR, { recursive: true });
     }
 
-    const buffer = await downloadMediaMessage(msg, 'buffer', {});
-    const fileName = `scan_${Date.now()}.jpg`;
+    let buffer = await downloadMediaMessage(msg, 'buffer', {});
+    const rawImage = msg.message?.imageMessage || msg.message?.documentMessage;
+    const mime = (rawImage?.mimetype || '').toLowerCase();
+    const docName = (rawImage?.fileName || '').toLowerCase();
+    const isHeic = mime.includes('heic') || mime.includes('heif') || docName.endsWith('.heic') || docName.endsWith('.heif');
+
+    if (isHeic && convertHeic) {
+      try {
+        console.log('[DEBUG] Mengonversi foto iPhone HEIC ke JPEG untuk OCR...');
+        buffer = await convertHeic({
+          buffer: buffer,
+          format: 'JPEG',
+          quality: 0.95
+        });
+      } catch (convErr) {
+        console.warn('⚠️ Gagal konversi HEIC ke JPEG:', convErr.message);
+      }
+    }
+
+    const fileName = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.jpg`;
     filePath = path.join(config.TEMP_DIR, fileName);
     fs.writeFileSync(filePath, buffer);
 
     console.log(`[DEBUG] Foto disimpan di: ${filePath}`);
     sessionLogger.logToSession(`📸 Foto diterima & disimpan: ${fileName}`);
 
+    const tOcr0 = Date.now();
     const ocrData = await runOCR(filePath);
-    console.log(`[DEBUG] Hasil OCR:`, JSON.stringify(ocrData, null, 2));
+    const ocrDur = ((Date.now() - tOcr0) / 1000).toFixed(2);
+    console.log(`[DEBUG] Hasil OCR (${ocrDur}s):`, JSON.stringify({
+      edition: ocrData.edition,
+      date: ocrData.date,
+      articles: (ocrData.articles || []).length
+    }));
 
     if (ocrData.status !== 'success') {
       sessionLogger.logToSession(`❌ Gagal OCR: ${ocrData.message || 'Format tidak dikenali.'}`);
@@ -162,14 +273,21 @@ async function handleSingleImage(sock, item) {
     }
 
     const articleCount = (ocrData.articles || []).length;
-    sessionLogger.logToSession(`✅ OCR Berhasil - Edisi: ${ocrData.edition || '-'}, Tanggal: ${ocrData.date || '-'}, Artikel: ${articleCount} judul`);
-    if (ocrData.gas_response) {
-      sessionLogger.logToSession(`📊 Status Google Sheet: ${ocrData.gas_response.status} (Drive: ${ocrData.gas_response.drive_file_url ? 'OK' : 'None'})`);
-    }
+    sessionLogger.logToSession(`✅ OCR Berhasil (${ocrDur}s) - Edisi: ${ocrData.edition || '-'}, Tanggal: ${ocrData.date || '-'}, Artikel: ${articleCount} judul`);
 
-    const reply = formatSuccessReply(ocrData);
-    await sendBotReply(sock, remoteJid, { text: reply }, { quoted: msg });
-    console.log(`✅ [SUCCESS] Selesai memproses Edisi ${ocrData.edition}`);
+    // 1. Send instant WhatsApp response (< 1s)
+    const replyText = formatSuccessReply(ocrData, true);
+    const sentReply = await sendBotReply(sock, remoteJid, { text: replyText }, { quoted: msg });
+    console.log(`⚡ [INSTANT REPLY] Respon terkirim ke WhatsApp dalam ${ocrDur}s untuk Edisi ${ocrData.edition || '-'}`);
+
+    // 2. Queue background upload to Google Apps Script (Drive + Sheet)
+    enqueueGASUpload({
+      sock,
+      remoteJid,
+      replyKey: sentReply ? sentReply.key : null,
+      ocrData,
+      quotedMsg: msg
+    });
 
   } catch (err) {
     console.error('❌ [DEBUG ERROR]', err.message);
@@ -182,22 +300,27 @@ async function handleSingleImage(sock, item) {
       try {
         fs.unlinkSync(filePath);
       } catch (cleanupErr) {
-        // Ignore file lock or temp cleanup warning
+        // Ignore file cleanup warning
       }
     }
   }
 }
 
-async function processQueue(sock) {
-  if (isProcessingQueue) return;
-  isProcessingQueue = true;
-
-  while (imageQueue.length > 0) {
+function triggerNextOcrWorkers(sock) {
+  while (imageQueue.length > 0 && activeOcrWorkers < OCR_CONCURRENCY_LIMIT) {
     const item = imageQueue.shift();
-    await handleSingleImage(sock, item);
+    activeOcrWorkers++;
+    handleSingleImage(sock, item)
+      .catch((err) => console.error('Image handling error:', err))
+      .finally(() => {
+        activeOcrWorkers--;
+        triggerNextOcrWorkers(sock);
+      });
   }
+}
 
-  isProcessingQueue = false;
+async function processQueue(sock) {
+  triggerNextOcrWorkers(sock);
 }
 
 async function handleMessage(sock, msg) {

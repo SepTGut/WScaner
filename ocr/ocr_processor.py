@@ -13,7 +13,28 @@ from ocr.parser import parse_metadata, parse_articles, INDONESIAN_MONTHS
 from ocr.gas_client import send_to_gas
 
 
-async def process_image(image_path: str, gas_url: str = None):
+import io
+import base64
+
+def prepare_drive_image_base64(img: Image.Image, max_dim: int = 1600, quality: int = 82) -> str:
+    """
+    Compresses and resizes the PIL image for Google Drive storage.
+    Reduces typical 3-10MB phone camera images down to ~200-300KB while preserving excellent text readability.
+    """
+    try:
+        drive_img = img.copy()
+        if drive_img.mode in ('RGBA', 'P'):
+            drive_img = drive_img.convert('RGB')
+        drive_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        drive_img.save(buf, format='JPEG', quality=quality, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+    except Exception as e:
+        print(f"[WARN] Image compression for Drive failed: {e}", file=sys.stderr)
+        return None
+
+
+async def process_image(image_path: str, gas_url: str = None, include_drive_image: bool = True, send_gas: bool = True):
     if not os.path.exists(image_path):
         return {"status": "error", "message": f"File not found: {image_path}"}
 
@@ -137,14 +158,10 @@ async def process_image(image_path: str, gas_url: str = None):
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     
-    # Encode image to Base64 for Google Drive storage
-    import base64
+    # Generate high-speed compressed Base64 image for Google Drive
     image_b64 = None
-    try:
-        with open(image_path, "rb") as f:
-            image_b64 = base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
-        print(f"[WARN] Gagal membaca gambar untuk base64: {e}", file=sys.stderr)
+    if include_drive_image:
+        image_b64 = prepare_drive_image_base64(img)
 
     result = {
         "status": "success",
@@ -160,27 +177,32 @@ async def process_image(image_path: str, gas_url: str = None):
         "image_name": f"scan_{edition or 'edisi'}_{int(datetime.now().timestamp())}.jpg"
     }
 
-    # 4. Post to Google Sheet via GAS if URL provided
-    if gas_url:
+    # 4. Post to Google Sheet via GAS if requested and URL provided
+    if send_gas and gas_url:
         result["gas_response"] = send_to_gas(gas_url, result)
-
-    # Remove base64 data before stdout so JSON response is lightweight
-    result.pop("image_base64", None)
 
     return result
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(json.dumps({"status": "error", "message": "Usage: python ocr/ocr_processor.py <image_path> [--gas-url <url>]"}))
+        print(json.dumps({"status": "error", "message": "Usage: python ocr/ocr_processor.py <image_path> [--gas-url <url>] [--no-gas] [--keep-b64]"}))
         sys.exit(1)
 
     img_path = sys.argv[1]
     gas_webhook = None
-    if "--gas-url" in sys.argv:
+    send_gas_flag = True
+    if "--no-gas" in sys.argv:
+        send_gas_flag = False
+    elif "--gas-url" in sys.argv:
         idx = sys.argv.index("--gas-url")
         if idx + 1 < len(sys.argv):
             gas_webhook = sys.argv[idx + 1]
 
-    data = asyncio.run(process_image(img_path, gas_webhook))
+    data = asyncio.run(process_image(img_path, gas_webhook, include_drive_image=True, send_gas=send_gas_flag))
+    
+    # Strip base64 before stdout unless caller explicitly requested --keep-b64
+    if "--keep-b64" not in sys.argv:
+        data.pop("image_base64", None)
+        
     print(json.dumps(data, indent=2))

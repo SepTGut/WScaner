@@ -4,6 +4,7 @@ FROM node:20-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
+    python-is-python3 \
     tesseract-ocr \
     tesseract-ocr-ind \
     tesseract-ocr-eng \

@@ -24,5 +24,6 @@ module.exports = {
   AUTH_DIR: path.join(__dirname, '..', 'auth_info'),
   TEMP_DIR: path.join(__dirname, '..', 'temp'),
   LOGS_DIR: path.join(__dirname, '..', 'logs'),
+  GETDATA_DIR: path.join(__dirname, '..', 'GetDataFolder'),
   ROOT_DIR: path.join(__dirname, '..')
 };

@@ -8,5 +8,7 @@ services:
       - ./auth_info:/app/auth_info
       - ./temp:/app/temp
       - ./.env:/app/.env
+      - ./src:/app/src
+      - ./ocr:/app/ocr
     stdin_open: true
     tty: true

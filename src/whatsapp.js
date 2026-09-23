@@ -1,3 +1,30 @@
+// Filter out noisy internal libsignal logs from Baileys
+const IGNORED_LIBSIGNAL_LOGS = [
+  'Closing session:',
+  'Opening session:',
+  'Session already closed',
+  'Session already open',
+  'Removing old closed session:',
+  'Decrypted message with closed session.',
+  'Closing open session in favor of incoming prekey bundle'
+];
+
+const originalWarn = console.warn;
+console.warn = function (...args) {
+  if (typeof args[0] === 'string' && IGNORED_LIBSIGNAL_LOGS.some(p => args[0].includes(p))) {
+    return;
+  }
+  originalWarn.apply(console, args);
+};
+
+const originalInfo = console.info;
+console.info = function (...args) {
+  if (typeof args[0] === 'string' && IGNORED_LIBSIGNAL_LOGS.some(p => args[0].includes(p))) {
+    return;
+  }
+  originalInfo.apply(console, args);
+};
+
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNormalizedUser } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');

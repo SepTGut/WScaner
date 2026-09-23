@@ -66,7 +66,21 @@ GAS_WEBHOOK_URL=https://script.google.com/macros/s/.../exec
 
 ---
 
-### Opsi 2: DOCKER (Background Service)
+### Opsi 2: DOCKER / PODMAN (Container Service)
+Jika menggunakan **Podman** (rekomendasi pengganti Docker):
+```bash
+# Pastikan machine podman sudah berjalan:
+podman machine start
+
+# Jalankan via npm script:
+npm run podman:up     # Jalankan container di latar belakang
+npm run podman:logs   # Tampilkan QR code & logs
+npm run podman:down   # Hentikan container
+
+# Atau langsung klik ganda file start-podman.bat
+```
+
+Jika masih menggunakan **Docker**:
 ```bash
 npm run docker:up     # Jalankan container di latar belakang
 npm run docker:logs   # Tampilkan QR code & logs
