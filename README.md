@@ -1,17 +1,19 @@
-# 📖 WScaner
-
 <div align="center">
 
-## Automated WhatsApp OCR Scanner to Google Sheets
+# 📖 WScaner
 
-Bot WhatsApp otomatis & cerdas untuk memindai foto majalah/buletin dakwah **Ulul Albab - Cerdas dan Mencerahkan**, mengekstrak metadata cover (_Edisi_, _Tahun Romawi_, _Tanggal_), 3 Judul Artikel, Penulis, serta Surah menggunakan OCR berkecepatan tinggi, lalu menyimpannya langsung ke **Google Sheet**.
+### Automated WhatsApp OCR Scanner to Google Sheets
 
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Python Version](https://img.shields.io/badge/python-%3E%3D3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Baileys WhatsApp](https://img.shields.io/badge/WhatsApp-Baileys%20v7-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://github.com/WhiskeySockets/Baileys)
-[![Groq Cloud LPU](https://img.shields.io/badge/Groq-Qwen%203.8%20Vision-F55036?style=for-the-badge&logo=groq&logoColor=white)](https://groq.com/)
-[![Google Gemini](https://img.shields.io/badge/Google-Gemini%20Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
-[![Docker & Podman](https://img.shields.io/badge/Container-Podman%20%7C%20Docker-892CA0?style=for-the-badge&logo=podman&logoColor=white)](https://podman.io/)
+<p align="center">
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-20+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" /></a>&nbsp;
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" /></a>&nbsp;
+  <a href="https://github.com/WhiskeySockets/Baileys"><img src="https://img.shields.io/badge/WhatsApp-Baileys%20v7-25D366?style=flat-square&logo=whatsapp&logoColor=white" alt="WhatsApp" /></a>&nbsp;
+  <a href="https://groq.com/"><img src="https://img.shields.io/badge/Groq-Qwen%203.8%20Vision-F55036?style=flat-square&logo=groq&logoColor=white" alt="Groq" /></a>&nbsp;
+  <a href="https://ai.google.dev/"><img src="https://img.shields.io/badge/Google-Gemini%20Flash-4285F4?style=flat-square&logo=google&logoColor=white" alt="Gemini" /></a>&nbsp;
+  <a href="https://podman.io/"><img src="https://img.shields.io/badge/Container-Podman%20%7C%20Docker-892CA0?style=flat-square&logo=podman&logoColor=white" alt="Podman" /></a>
+</p>
+
+Bot WhatsApp otomatis & cerdas untuk memindai foto majalah/buletin dakwah **Ulul Albab - Cerdas dan Mencerahkan**, mengekstrak metadata cover (*Edisi*, *Tahun Romawi*, *Tanggal*), 3 Judul Artikel, Penulis, serta Surah menggunakan OCR berkecepatan tinggi, lalu menyimpannya langsung ke **Google Sheet**.
 
 </div>
 
@@ -40,7 +42,7 @@ Bot WhatsApp otomatis & cerdas untuk memindai foto majalah/buletin dakwah **Ulul
 - **Persistent OCR Daemon (Port 5005)**  
   Background worker Python yang siap melayani request pemindaian seketika, mengeliminasi overhead inisialisasi runtime Python.
 - **Onetimeused Photo Extractor**  
-  Mampu menangkap foto sekali lihat (_view-once media_) yang dikirim pengguna dan menyimpannya secara rapi ke `data/downloads/`.
+  Mampu menangkap foto sekali lihat (*view-once media*) yang dikirim pengguna dan menyimpannya secara rapi ke `data/downloads/`.
 - **Penyimpanan Otomatis 9 Kolom Google Sheets**  
   Format tabel rapi dengan mekanisme pencegahan duplikasi data berdasarkan kombinasi Edisi, Tahun, dan Tanggal.
 - **Role-Based WhatsApp Commands**  
