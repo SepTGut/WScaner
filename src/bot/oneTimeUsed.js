@@ -335,7 +335,7 @@ async function Onetimeused(targetNumberOrOptions, maybeOptions = {}) {
   }
 
   const targetDate = options.targetDate ? new Date(options.targetDate) : new Date();
-  const outputDir = options.outputFolder || config.GETDATA_DIR || path.join(config.ROOT_DIR, 'GetDataFolder');
+  const outputDir = options.outputFolder || config.GETDATA_DIR || path.join(config.ROOT_DIR, 'data', 'downloads');
 
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });

@@ -1,5 +1,6 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const ROOT_DIR = path.join(__dirname, '..', '..');
+require('dotenv').config({ path: path.join(ROOT_DIR, '.env') });
 
 function normalizePhone(num) {
   if (!num) return '';
@@ -21,9 +22,11 @@ module.exports = {
   TUTO_COMMAND: (process.env.TUTO_COMMAND || '#tuto').trim().toLowerCase(),
   SPREADSHEET_URL: process.env.SPREADSHEET_URL || 'https://docs.google.com/spreadsheets/d/1fcBQJNoGU6bO1RcXEMiNCW5UB450VHmLTMtWPfDumFw/edit',
   GAS_WEBHOOK_URL: process.env.GAS_WEBHOOK_URL || '',
-  AUTH_DIR: path.join(__dirname, '..', 'auth_info'),
-  TEMP_DIR: path.join(__dirname, '..', 'temp'),
-  LOGS_DIR: path.join(__dirname, '..', 'logs'),
-  GETDATA_DIR: path.join(__dirname, '..', 'GetDataFolder'),
-  ROOT_DIR: path.join(__dirname, '..')
+  AUTH_DIR: path.join(ROOT_DIR, 'runtime', 'auth'),
+  TEMP_DIR: path.join(ROOT_DIR, 'runtime', 'temp'),
+  LOGS_DIR: path.join(ROOT_DIR, 'runtime', 'logs'),
+  GETDATA_DIR: path.join(ROOT_DIR, 'data', 'downloads'),
+  OCR_DIR: path.join(ROOT_DIR, 'src', 'ocr'),
+  DATA_DIR: path.join(ROOT_DIR, 'data'),
+  ROOT_DIR: ROOT_DIR
 };

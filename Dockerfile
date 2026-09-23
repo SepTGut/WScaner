@@ -22,11 +22,12 @@ RUN npm install --omit=dev
 COPY requirements.txt ./
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
-# Copy modular source folders
+# Copy application folders
 COPY src/ ./src/
-COPY ocr/ ./ocr/
+COPY data/ ./data/
+COPY scripts/ ./scripts/
 
 # Create persistent directories
-RUN mkdir -p /app/temp /app/auth_info
+RUN mkdir -p /app/runtime/temp /app/runtime/auth /app/runtime/logs /app/data/downloads
 
-CMD ["node", "src/bot.js"]
+CMD ["node", "src/bot/bot.js"]

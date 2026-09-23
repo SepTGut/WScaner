@@ -34,7 +34,7 @@ async function start() {
   }
 
   console.log(`🚀 [OCR DAEMON] Memulai background worker Python di ${SERVER_URL}...`);
-  const serverScript = path.join(config.ROOT_DIR, 'ocr', 'server.py');
+  const serverScript = path.join(config.ROOT_DIR, 'src', 'ocr', 'server.py');
 
   const pythonCmd = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
   daemonProcess = spawn(pythonCmd, [serverScript], {

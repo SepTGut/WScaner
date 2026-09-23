@@ -1,7 +1,9 @@
 const { initWhatsAppBot } = require('./whatsapp');
 const ocrDaemon = require('./ocrDaemon');
 
-console.log('🚀 Memulai WScaner WhatsApp OCR Bot...');
+const engineName = (process.env.OCR_ENGINE || 'windows').toUpperCase();
+console.log(`🚀 Memulai WScaner WhatsApp OCR Bot...`);
+console.log(`🔍 Mesin Aktif: ${engineName}`);
 
 (async () => {
   try {

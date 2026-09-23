@@ -8,11 +8,16 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+runtime/auth/
 auth_info/
 auth_info*/
 allowed_numbers.json
 
-# Temporary files and session logs
+# Temporary files, downloads and session logs
+runtime/temp/
+runtime/logs/
+data/downloads/
+GetDataFolder/
 temp/
 logs/
 *.log

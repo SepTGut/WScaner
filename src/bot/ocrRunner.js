@@ -5,18 +5,21 @@ const config = require('./config');
 const ocrDaemon = require('./ocrDaemon');
 
 async function runOCRViaDaemon(filePath) {
+  const engine = process.env.OCR_ENGINE || 'windows';
   const res = await axios.post(`${ocrDaemon.SERVER_URL}/ocr`, {
     image_path: path.resolve(filePath),
-    include_drive_image: true
-  }, { timeout: 15000 });
+    include_drive_image: true,
+    engine: engine
+  }, { timeout: 25000 });
   return res.data;
 }
 
 function runOCRViaCLI(filePath) {
   return new Promise((resolve, reject) => {
-    const ocrScript = path.join(config.ROOT_DIR, 'ocr', 'ocr_processor.py');
+    const ocrScript = path.join(config.ROOT_DIR, 'src', 'ocr', 'ocr_processor.py');
     const pythonCmd = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
-    const cmd = `${pythonCmd} "${ocrScript}" "${filePath}" --no-gas --keep-b64`;
+    const engineArg = process.env.OCR_ENGINE ? ` --engine ${process.env.OCR_ENGINE}` : '';
+    const cmd = `${pythonCmd} "${ocrScript}" "${filePath}" --no-gas --keep-b64${engineArg}`;
 
     exec(cmd, { cwd: config.ROOT_DIR, maxBuffer: 30 * 1024 * 1024 }, (error, stdout, stderr) => {
       const rawOutput = (stdout || '').trim();
