@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const axios = require('axios');
 const config = require('./config');
@@ -10,7 +10,7 @@ async function runOCRViaDaemon(filePath) {
     image_path: path.resolve(filePath),
     include_drive_image: true,
     engine: engine
-  }, { timeout: 25000 });
+  }, { timeout: 45000 });
   return res.data;
 }
 
@@ -18,10 +18,12 @@ function runOCRViaCLI(filePath) {
   return new Promise((resolve, reject) => {
     const ocrScript = path.join(config.ROOT_DIR, 'src', 'ocr', 'ocr_processor.py');
     const pythonCmd = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
-    const engineArg = process.env.OCR_ENGINE ? ` --engine ${process.env.OCR_ENGINE}` : '';
-    const cmd = `${pythonCmd} "${ocrScript}" "${filePath}" --no-gas --keep-b64${engineArg}`;
+    const args = [ocrScript, path.resolve(filePath), '--no-gas', '--keep-b64'];
+    if (process.env.OCR_ENGINE) {
+      args.push('--engine', process.env.OCR_ENGINE);
+    }
 
-    exec(cmd, { cwd: config.ROOT_DIR, maxBuffer: 30 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(pythonCmd, args, { cwd: config.ROOT_DIR, maxBuffer: 30 * 1024 * 1024 }, (error, stdout, stderr) => {
       const rawOutput = (stdout || '').trim();
       const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
 
@@ -68,10 +70,13 @@ async function syncToGAS(payload, maxRetries = 2) {
 
   const cleanUrl = config.GAS_WEBHOOK_URL.trim();
   let lastErr = null;
+  const fullPayload = config.GAS_SECRET_TOKEN
+    ? { ...payload, secret: config.GAS_SECRET_TOKEN }
+    : payload;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const resp = await axios.post(cleanUrl, payload, {
+      const resp = await axios.post(cleanUrl, fullPayload, {
         timeout: 45000,
         maxRedirects: 5,
         headers: { 'Content-Type': 'application/json' }

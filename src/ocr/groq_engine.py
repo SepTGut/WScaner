@@ -106,7 +106,7 @@ def extract_with_groq(image_path: str, api_key: str = None, model: str = None) -
     }
 
     try:
-        resp = requests.post(endpoint, headers=headers, json=payload, timeout=25)
+        resp = requests.post(endpoint, headers=headers, json=payload, timeout=10)
         if resp.status_code != 200:
             return {"status": "error", "http_code": resp.status_code, "message": f"Groq API error: {resp.text}"}
 

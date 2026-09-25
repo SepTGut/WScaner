@@ -25,7 +25,35 @@ function isIphoneOrStandardImage(mimetype = '', fileName = '') {
   );
 }
 
-let isScanningActive = false;
+const STATE_FILE = path.join(config.ROOT_DIR, 'runtime', 'scanner_state.json');
+
+function loadScannerState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+      if (typeof data.active === 'boolean') {
+        return data.active;
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Gagal membaca scanner_state.json:', err.message);
+  }
+  return false;
+}
+
+function saveScannerState(active) {
+  try {
+    const dir = path.dirname(STATE_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ active, updated_at: new Date().toISOString() }, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('⚠️ Gagal menyimpan scanner_state.json:', err.message);
+  }
+}
+
+let isScanningActive = loadScannerState();
 const botSentMessageIds = new Set();
 
 function recordBotSentMessage(msgId) {
@@ -173,51 +201,53 @@ async function processGASQueue() {
   if (isProcessingGas) return;
   isProcessingGas = true;
 
-  while (gasQueue.length > 0) {
-    const task = gasQueue.shift();
-    const { sock, remoteJid, replyKey, ocrData, quotedMsg } = task;
+  try {
+    while (gasQueue.length > 0) {
+      const task = gasQueue.shift();
+      const { sock, remoteJid, replyKey, ocrData, quotedMsg } = task;
 
-    try {
-      sessionLogger.logToSession(`📊 Mulai sinkronisasi Google Sheet untuk Edisi ${ocrData.edition || '-'}...`);
-      const tGasStart = Date.now();
-      const gasRes = await syncToGAS(ocrData);
-      const gasDur = ((Date.now() - tGasStart) / 1000).toFixed(1);
-      ocrData.gas_response = gasRes;
+      try {
+        sessionLogger.logToSession(`📊 Mulai sinkronisasi Google Sheet untuk Edisi ${ocrData.edition || '-'}...`);
+        const tGasStart = Date.now();
+        const gasRes = await syncToGAS(ocrData);
+        const gasDur = ((Date.now() - tGasStart) / 1000).toFixed(1);
+        ocrData.gas_response = gasRes;
 
-      if (gasRes.status === 'success') {
-        sessionLogger.logToSession(`📊 Sukses simpan ke Google Sheet (${gasDur}s) - Drive: ${gasRes.drive_file_url ? 'OK' : 'None'}`);
-        console.log(`✅ [GAS SUCCESS] Data tersimpan ke Spreadsheet & Drive dalam ${gasDur}s`);
-        if (replyKey) {
-          try {
-            await sock.sendMessage(remoteJid, {
-              react: { text: '✅', key: replyKey }
-            });
-          } catch (reactErr) {
-            // Ignore reaction error
+        if (gasRes.status === 'success') {
+          sessionLogger.logToSession(`📊 Sukses simpan ke Google Sheet (${gasDur}s) - Drive: ${gasRes.drive_file_url ? 'OK' : 'None'}`);
+          console.log(`✅ [GAS SUCCESS] Data tersimpan ke Spreadsheet & Drive dalam ${gasDur}s`);
+          if (replyKey) {
+            try {
+              await sock.sendMessage(remoteJid, {
+                react: { text: '✅', key: replyKey }
+              });
+            } catch (reactErr) {
+              // Ignore reaction error
+            }
           }
+        } else if (gasRes.status !== 'skipped') {
+          const errReason = gasRes.message || gasRes.error || `HTTP ${gasRes.http_code || 500}`;
+          sessionLogger.logToSession(`❌ Gagal simpan Google Sheet: ${errReason}`);
+          console.error(`❌ [GAS ERROR] Gagal simpan: ${errReason}`);
+          if (replyKey) {
+            try {
+              await sock.sendMessage(remoteJid, {
+                react: { text: '⚠️', key: replyKey }
+              });
+            } catch (reactErr) {}
+          }
+          await sendBotReply(sock, remoteJid, {
+            text: `⚠️ *Gagal Menyimpan ke Google Sheet:*\n${errReason}\n\n_(Hasil scan tetap tersimpan di log lokal bot)_`
+          }, { quoted: quotedMsg });
         }
-      } else if (gasRes.status !== 'skipped') {
-        const errReason = gasRes.message || gasRes.error || `HTTP ${gasRes.http_code || 500}`;
-        sessionLogger.logToSession(`❌ Gagal simpan Google Sheet: ${errReason}`);
-        console.error(`❌ [GAS ERROR] Gagal simpan: ${errReason}`);
-        if (replyKey) {
-          try {
-            await sock.sendMessage(remoteJid, {
-              react: { text: '⚠️', key: replyKey }
-            });
-          } catch (reactErr) {}
-        }
-        await sendBotReply(sock, remoteJid, {
-          text: `⚠️ *Gagal Menyimpan ke Google Sheet:*\n${errReason}\n\n_(Hasil scan tetap tersimpan di log lokal bot)_`
-        }, { quoted: quotedMsg });
+      } catch (err) {
+        console.error('❌ [GAS SYNC ERROR]', err.message);
+        sessionLogger.logToSession(`❌ Exception sync GAS: ${err.message}`);
       }
-    } catch (err) {
-      console.error('❌ [GAS SYNC ERROR]', err.message);
-      sessionLogger.logToSession(`❌ Exception sync GAS: ${err.message}`);
     }
+  } finally {
+    isProcessingGas = false;
   }
-
-  isProcessingGas = false;
 }
 
 async function handleSingleImage(sock, item) {
@@ -418,6 +448,7 @@ async function handleMessage(sock, msg) {
   // 3. Handle Commands
   if (isCmd(config.START_COMMAND)) {
     isScanningActive = true;
+    saveScannerState(true);
     sessionLogger.startSession();
     sessionLogger.logToSession('🟢 Sesi scanner diaktifkan oleh user.');
     console.log(`🟢 [DEBUG] Perintah START diterima! Mengaktifkan scanner & memulai sesi log.`);
@@ -430,6 +461,7 @@ async function handleMessage(sock, msg) {
 
   if (isCmd(config.STOP_COMMAND)) {
     isScanningActive = false;
+    saveScannerState(false);
     sessionLogger.logToSession('🔴 Sesi scanner dinonaktifkan oleh user.');
     const closedLog = sessionLogger.endSession();
     console.log(`🔴 [DEBUG] Perintah STOP diterima! Menonaktifkan scanner. Sesi tersimpan di: ${closedLog}`);

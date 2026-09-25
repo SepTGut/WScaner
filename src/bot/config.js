@@ -22,6 +22,7 @@ module.exports = {
   TUTO_COMMAND: (process.env.TUTO_COMMAND || '#tuto').trim().toLowerCase(),
   SPREADSHEET_URL: process.env.SPREADSHEET_URL || 'https://docs.google.com/spreadsheets/d/1fcBQJNoGU6bO1RcXEMiNCW5UB450VHmLTMtWPfDumFw/edit',
   GAS_WEBHOOK_URL: process.env.GAS_WEBHOOK_URL || '',
+  GAS_SECRET_TOKEN: process.env.GAS_SECRET_TOKEN || '',
   AUTH_DIR: path.join(ROOT_DIR, 'runtime', 'auth'),
   TEMP_DIR: path.join(ROOT_DIR, 'runtime', 'temp'),
   LOGS_DIR: path.join(ROOT_DIR, 'runtime', 'logs'),

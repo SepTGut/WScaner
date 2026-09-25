@@ -95,7 +95,7 @@ def run_google_drive_ocr(image_path: str, access_token: str = None) -> str:
 
     # Upload & OCR
     upload_url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
-    res = requests.post(upload_url, headers=headers, files=multipart_files, timeout=30)
+    res = requests.post(upload_url, headers=headers, files=multipart_files, timeout=15)
     if res.status_code != 200:
         raise RuntimeError(f"Drive upload failed: {res.status_code} {res.text}")
 
@@ -106,7 +106,7 @@ def run_google_drive_ocr(image_path: str, access_token: str = None) -> str:
     try:
         # Export text
         export_url = f"https://www.googleapis.com/drive/v3/files/{doc_id}/export?mimeType=text/plain"
-        exp_res = requests.get(export_url, headers=headers, timeout=20)
+        exp_res = requests.get(export_url, headers=headers, timeout=10)
         if exp_res.status_code != 200:
             raise RuntimeError(f"Drive export failed: {exp_res.status_code} {exp_res.text}")
         extracted_text = exp_res.text

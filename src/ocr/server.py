@@ -65,12 +65,9 @@ class OCRRequestHandler(BaseHTTPRequestHandler):
             engine_req = req_data.get("engine", os.environ.get("OCR_ENGINE", "windows"))
             try:
                 t0 = time.perf_counter()
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                res = loop.run_until_complete(
+                res = asyncio.run(
                     process_image(image_path, gas_url=None, include_drive_image=include_drive_img, send_gas=False, engine=engine_req)
                 )
-                loop.close()
                 t1 = time.perf_counter()
                 res["ocr_duration_ms"] = int((t1 - t0) * 1000)
                 self._send_json(200, res)

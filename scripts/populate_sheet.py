@@ -10,7 +10,26 @@ from ocr.ocr_processor import process_image
 from ocr.gas_client import send_to_gas
 
 MANIFEST_PATH = os.path.join(ROOT_DIR, "data", "scans", "manifest.json")
-GAS_URL = "https://script.google.com/macros/s/AKfycbwlBr2M8ZshWucV5LPhi2cYlWV04w4uKFaQf9ApioIqsB3KVkn0eO9MWOPUtnG5K3mxUA/exec"
+
+def get_gas_url() -> str:
+    url = os.environ.get("GAS_WEBHOOK_URL")
+    if url:
+        return url
+    env_file = os.path.join(ROOT_DIR, ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        if k.strip() == "GAS_WEBHOOK_URL":
+                            return v.strip().strip("'").strip('"')
+        except Exception:
+            pass
+    return "https://script.google.com/macros/s/AKfycbwlBr2M8ZshWucV5LPhi2cYlWV04w4uKFaQf9ApioIqsB3KVkn0eO9MWOPUtnG5K3mxUA/exec"
+
+GAS_URL = get_gas_url()
 
 async def populate():
     if not os.path.exists(MANIFEST_PATH):

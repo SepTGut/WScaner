@@ -9,6 +9,7 @@ yarn-error.log*
 .env.*
 !.env.example
 runtime/auth/
+runtime/scanner_state.json
 auth_info/
 auth_info*/
 allowed_numbers.json

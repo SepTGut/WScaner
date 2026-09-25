@@ -16,8 +16,11 @@ async function downloadAll() {
     process.exit(1);
   }
 
-  console.log('📋 Fetching file list from Google Drive folder 15ytN9NDqTkmpW5qLt3nVGF2A9qj3Wjhe...');
-  const listRes = await axios.post(webhookUrl, { action: 'list_drive' }, { maxRedirects: 5, timeout: 30000 });
+  const secret = process.env.GAS_SECRET_TOKEN || '';
+  const postPayload = (payload) => (secret ? { ...payload, secret } : payload);
+
+  console.log('📋 Fetching file list from Google Drive (DB-WScan)...');
+  const listRes = await axios.post(webhookUrl, postPayload({ action: 'list_drive' }), { maxRedirects: 5, timeout: 30000 });
   
   if (listRes.data.status !== 'success') {
     console.error('Failed to list drive files:', listRes.data);
@@ -39,10 +42,10 @@ async function downloadAll() {
 
     // Fetch base64 from GAS
     try {
-      const fileRes = await axios.post(webhookUrl, {
+      const fileRes = await axios.post(webhookUrl, postPayload({
         action: 'get_file_base64',
         file_id: f.id
-      }, { maxRedirects: 5, timeout: 60000 });
+      }), { maxRedirects: 5, timeout: 60000 });
 
       if (fileRes.data.status === 'success' && fileRes.data.base64) {
         const buffer = Buffer.from(fileRes.data.base64, 'base64');

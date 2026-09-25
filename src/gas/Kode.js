@@ -6,21 +6,28 @@ function getTargetSheet() {
     ss = SpreadsheetApp.getActiveSpreadsheet();
   } catch (e) {}
   if (!ss) {
-    // Fallback for standalone web app execution
-    ss = SpreadsheetApp.openById("1fcBQJNoGU6bO1RcXEMiNCW5UB450VHmLTMtWPfDumFw");
+    // Configurable via ScriptProperties with default fallback
+    const defaultId = "1fcBQJNoGU6bO1RcXEMiNCW5UB450VHmLTMtWPfDumFw";
+    const sheetId = PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID") || defaultId;
+    ss = SpreadsheetApp.openById(sheetId);
   }
   return ss.getActiveSheet() || ss.getSheets()[0];
 }
 
-const TARGET_DB_FOLDER_ID = "15ytN9NDqTkmpW5qLt3nVGF2A9qj3Wjhe";
+function getTargetFolderId() {
+  const defaultFolderId = "15ytN9NDqTkmpW5qLt3nVGF2A9qj3Wjhe";
+  return PropertiesService.getScriptProperties().getProperty("DB_FOLDER_ID") || defaultFolderId;
+}
+
 var CACHED_FOLDER = null;
 
 function getOrCreateFolder(folderName) {
   if (CACHED_FOLDER) {
     return CACHED_FOLDER;
   }
+  const folderId = getTargetFolderId();
   try {
-    CACHED_FOLDER = DriveApp.getFolderById(TARGET_DB_FOLDER_ID);
+    CACHED_FOLDER = DriveApp.getFolderById(folderId);
     return CACHED_FOLDER;
   } catch (idErr) {
     const folders = DriveApp.getFoldersByName(folderName || "DB-WScan");
@@ -50,7 +57,7 @@ function getNextRow(sheet) {
 
 function doGet(e) {
   if (e && e.parameter && e.parameter.action === "inspect_drive") {
-    const targetId = e.parameter.folder_id || "15ytN9NDqTkmpW5qLt3nVGF2A9qj3Wjhe";
+    const targetId = e.parameter.folder_id || getTargetFolderId();
     return ContentService.createTextOutput(JSON.stringify(inspectDriveAccess(targetId))).setMimeType(ContentService.MimeType.JSON);
   }
   if (e && e.parameter && (e.parameter.action === "list_drive" || e.parameter.action === "check_drive")) {
@@ -73,8 +80,25 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    const sheet = getTargetSheet();
     const data = JSON.parse(e.postData.contents);
+
+    // Authentication check against ScriptProperties 'AUTH_TOKEN'
+    const authToken = PropertiesService.getScriptProperties().getProperty("AUTH_TOKEN");
+    if (authToken) {
+      if (!data.secret || data.secret !== authToken) {
+        Logger.log("⛔ [AUTH FAILED] Unauthorized request attempt to doPost.");
+        return ContentService.createTextOutput(JSON.stringify({
+          status: "error",
+          http_code: 401,
+          message: "Unauthorized: Invalid or missing secret token"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    } else {
+      // Optional setup mode notice
+      Logger.log("⚠️ [AUTH NOTICE] AUTH_TOKEN not set in ScriptProperties. Running in open setup mode.");
+    }
+
+    const sheet = getTargetSheet();
 
     // Support listing files in DB-WScan Google Drive folder or custom folder_id
     if (data.action === "list_drive" || data.action === "get_drive_files" || data.action === "check_drive") {

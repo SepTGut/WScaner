@@ -1,5 +1,24 @@
+import os
 import requests
 import time
+
+def get_secret_token() -> str:
+    token = os.environ.get("GAS_SECRET_TOKEN")
+    if token:
+        return token
+    env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        if k.strip() == "GAS_SECRET_TOKEN":
+                            return v.strip().strip("'").strip('"')
+        except Exception:
+            pass
+    return ""
 
 def send_to_gas(gas_url: str, payload: dict, max_retries: int = 3) -> dict:
     """Sends extracted OCR payload to Google Apps Script Web App with automatic retries."""
@@ -8,6 +27,10 @@ def send_to_gas(gas_url: str, payload: dict, max_retries: int = 3) -> dict:
     
     clean_url = gas_url.strip()
     last_error = None
+
+    token = get_secret_token()
+    if token and isinstance(payload, dict) and "secret" not in payload:
+        payload["secret"] = token
 
     for attempt in range(1, max_retries + 1):
         try:

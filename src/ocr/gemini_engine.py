@@ -26,7 +26,7 @@ def get_env_var(key: str, default: str = "") -> str:
     return default
 
 GEMINI_API_KEY = get_env_var("GEMINI_API_KEY", "")
-GEMINI_MODEL = get_env_var("GEMINI_MODEL", "gemini-flash-latest")
+GEMINI_MODEL = get_env_var("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 PROMPT_TEMPLATE = """
 Analisis cover majalah/buletin 'Ulul Albab' ini.
@@ -97,7 +97,7 @@ def extract_with_gemini(image_path: str, api_key: str = None, model: str = None)
         }
     }
 
-    candidate_models = [mod] if mod else ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+    candidate_models = [mod] if mod else ["gemini-flash-latest"]
     last_error = None
 
     for m in candidate_models:
@@ -109,7 +109,7 @@ def extract_with_gemini(image_path: str, api_key: str = None, model: str = None)
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=35) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 out_text = data["candidates"][0]["content"]["parts"][0]["text"]
                 parsed = json.loads(out_text)
