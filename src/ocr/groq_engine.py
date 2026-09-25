@@ -35,20 +35,28 @@ GROQ_MODEL = get_env_var("GROQ_MODEL", "qwen/qwen3.8-27b")
 
 
 PROMPT_TEMPLATE = """
-Analisis cover majalah/buletin 'Ulul Albab' ini.
-Tugas Anda adalah mengekstrak metadata dan 3 artikel di kolom sidebar/daftar isi:
-1. "edition": Nomor edisi (contoh: "05", "51", "10", "48")
-2. "year_roman": Angka romawi tahun penerbitan (contoh: "XI", "XII"). Jika tidak tercetak jelas, simpulkan dari tahun penerbitan (contoh 2025 -> "XI").
-3. "date": Bulan dan Tahun penerbitan (contoh: "Mei 2025", "April 2026", "Juli 2026")
-4. "articles": Daftar 3 artikel yang masing-masing memiliki:
-   - "title": Judul lengkap artikel (termasuk penanda Bagian 1 / Bagian 2 jika ada).
-   - "author": Nama penulis lengkap (jika penulis ganda gabungkan dengan ' & ', misal "M. Miftah Farid & Ajeng D.L.").
-   - "surah": Referensi surah/ayat jika disebutkan dalam judul (misal "Surah Al-Hasyr Ayat 9"), jika tidak ada isi "-".
+Periksa apakah gambar ini benar-benar cover majalah/buletin 'Ulul Albab'.
+
+PENTING:
+Jika gambar ini BUKAN cover majalah/buletin (misalnya foto wajah manusia, selfie, dinding, ruangan, atau objek lain):
+Kembalikan HANYA:
+{"is_magazine": false, "reason": "Bukan cover majalah Ulul Albab"}
+
+HANYA jika gambar ini terbukti adalah cover majalah/buletin Ulul Albab, ekstrak:
+1. "is_magazine": true
+2. "edition": Nomor edisi (contoh: "05", "51", "10", "48")
+3. "year_roman": Angka romawi tahun penerbitan (contoh: "XI", "XII")
+4. "date": Bulan dan Tahun penerbitan (contoh: "Mei 2025", "April 2026")
+5. "articles": Daftar 3 artikel nyata yang tertulis di cover majalah:
+   - "title": Judul lengkap artikel (termasuk penanda Bagian 1 / Bagian 2 jika ada)
+   - "author": Nama penulis lengkap (jika penulis ganda gabungkan dengan ' & ')
+   - "surah": Referensi surah jika ada, jika tidak ada isi "-"
 
 Koreksi typo atau keanehan font kamera (misal "Tohun" -> "Tahun", "Edi5i" -> "Edisi", "Bagtan iJ" -> "(Bagian 1)").
 
-Kembalikan HANYA format JSON valid tanpa tanda kutip markdown (```json ... ```), persis dengan struktur:
+Kembalikan HANYA format JSON valid tanpa tanda kutip markdown, persis dengan struktur:
 {
+  "is_magazine": true,
   "edition": "...",
   "year_roman": "...",
   "date": "...",
@@ -116,10 +124,20 @@ def extract_with_groq(image_path: str, api_key: str = None, model: str = None) -
         # Parse JSON output
         parsed = json.loads(content)
 
+        if parsed.get("is_magazine") is False:
+            return {
+                "status": "error",
+                "message": parsed.get("reason") or "Gambar terdeteksi bukan cover majalah Ulul Albab."
+            }
+
         # Normalize articles structure if author was returned as list or string
         articles = parsed.get("articles", [])
         clean_articles = []
         for a in articles:
+            t_val = clean_title(str(a.get("title", "")).strip())
+            t_low = t_val.lower()
+            if len(t_val) < 5 or "tidak ditemukan" in t_low or "tidak ada" in t_low:
+                continue
             author_val = a.get("author") or a.get("authors") or ""
             if isinstance(author_val, list):
                 author_val = " & ".join(author_val)
@@ -127,10 +145,21 @@ def extract_with_groq(image_path: str, api_key: str = None, model: str = None) -
             if not surah_val or surah_val == "null":
                 surah_val = "-"
             clean_articles.append({
-                "title": clean_title(str(a.get("title", "")).strip()),
+                "title": t_val,
                 "author": clean_author_name(str(author_val).strip()),
                 "surah": str(surah_val).strip()
             })
+
+        edition_val = str(parsed.get("edition") or parsed.get("edition_number") or "-").strip()
+        if edition_val in ("-", "null", "none", "", "?"):
+            edition_val = "-"
+
+        # Reject if neither edition nor any valid articles exist
+        if edition_val == "-" and len(clean_articles) == 0:
+            return {
+                "status": "error",
+                "message": "Bukan cover majalah Ulul Albab / metadata tidak ditemukan."
+            }
 
         cand_roman = str(parsed.get("year_roman") or parsed.get("roman_year") or "-").strip()
         if cand_roman and cand_roman != "-":
@@ -139,7 +168,7 @@ def extract_with_groq(image_path: str, api_key: str = None, model: str = None) -
         return {
             "status": "success",
             "ocr_engine": f"Groq Cloud VLM ({mod})",
-            "edition": str(parsed.get("edition") or parsed.get("edition_number") or "-").strip(),
+            "edition": edition_val,
             "year_roman": cand_roman or "-",
             "date": str(parsed.get("date", "-")).strip(),
             "articles": clean_articles[:3]

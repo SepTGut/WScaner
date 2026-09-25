@@ -10,6 +10,7 @@ yarn-error.log*
 !.env.example
 runtime/auth/
 runtime/scanner_state.json
+runtime/camera_scan_history.json
 auth_info/
 auth_info*/
 allowed_numbers.json

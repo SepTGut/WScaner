@@ -29,20 +29,28 @@ GEMINI_API_KEY = get_env_var("GEMINI_API_KEY", "")
 GEMINI_MODEL = get_env_var("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 PROMPT_TEMPLATE = """
-Analisis cover majalah/buletin 'Ulul Albab' ini.
-Tugas Anda adalah mengekstrak metadata dan 3 artikel di kolom sidebar/daftar isi:
-1. "edition": Nomor edisi (contoh: "05", "51", "10")
-2. "year_roman": Angka romawi tahun penerbitan (contoh: "XI", "XII"). Jika tidak tercetak jelas di cover, simpulkan berdasarkan tahun penerbitan (contoh 2025 -> "XI").
-3. "date": Bulan dan Tahun penerbitan (contoh: "Mei 2025", "April 2026", "Juli 2026")
-4. "articles": Daftar 3 artikel yang masing-masing memiliki:
-   - "title": Judul lengkap artikel (termasuk subtitle atau penanda Bagian 1 / Bagian 2 jika ada).
-   - "author": Nama penulis lengkap (jika ada penulis ganda dengan '&', sertakan keduanya).
-   - "surah": Referensi surah/ayat jika disebutkan dalam judul (misal "Surah Al-Hasyr Ayat 9"), jika tidak ada isi "-".
+Periksa apakah gambar ini benar-benar cover majalah/buletin 'Ulul Albab'.
+
+PENTING:
+Jika gambar ini BUKAN cover majalah/buletin (misalnya foto wajah manusia, selfie, dinding, pemandangan, atau objek lain):
+Kembalikan HANYA:
+{"is_magazine": false, "reason": "Bukan cover majalah Ulul Albab"}
+
+HANYA jika gambar ini terbukti adalah cover majalah/buletin Ulul Albab, ekstrak:
+1. "is_magazine": true
+2. "edition": Nomor edisi (contoh: "05", "51", "10")
+3. "year_roman": Angka romawi tahun penerbitan (contoh: "XI", "XII")
+4. "date": Bulan dan Tahun penerbitan (contoh: "Mei 2025", "April 2026")
+5. "articles": Daftar 3 artikel nyata yang tertulis di cover majalah:
+   - "title": Judul lengkap artikel (termasuk subtitle atau penanda Bagian jika ada)
+   - "author": Nama penulis lengkap
+   - "surah": Referensi surah jika ada, jika tidak ada isi "-"
 
 Koreksi typo atau keanehan font kamera (misal "Tohun" -> "Tahun", "Edi5i" -> "Edisi", "Bagtan iJ" -> "(Bagian 1)").
 
 Kembalikan HANYA format JSON valid tanpa tanda kutip markdown, persis dengan struktur:
 {
+  "is_magazine": true,
   "edition": "...",
   "year_roman": "...",
   "date": "...",
@@ -97,7 +105,12 @@ def extract_with_gemini(image_path: str, api_key: str = None, model: str = None)
         }
     }
 
-    candidate_models = [mod] if mod else ["gemini-flash-latest"]
+    # Build candidate models with graceful fallbacks
+    fallbacks = ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+    candidate_models = [mod] if mod else []
+    for fb in fallbacks:
+        if fb not in candidate_models:
+            candidate_models.append(fb)
     last_error = None
 
     for m in candidate_models:
@@ -113,15 +126,46 @@ def extract_with_gemini(image_path: str, api_key: str = None, model: str = None)
                 data = json.loads(resp.read().decode("utf-8"))
                 out_text = data["candidates"][0]["content"]["parts"][0]["text"]
                 parsed = json.loads(out_text)
-                
+
+                if parsed.get("is_magazine") is False:
+                    return {
+                        "status": "error",
+                        "message": parsed.get("reason") or "Gambar terdeteksi bukan cover majalah Ulul Albab."
+                    }
+
+                articles = parsed.get("articles", [])
+                clean_articles = []
+                for a in articles:
+                    if isinstance(a, dict):
+                        t_val = str(a.get("title", "")).strip()
+                        t_low = t_val.lower()
+                        # Filter out placeholders or short strings
+                        if len(t_val) >= 5 and "tidak ditemukan" not in t_low and "tidak ada" not in t_low:
+                            clean_articles.append({
+                                "title": t_val,
+                                "author": str(a.get("author", "")).strip(),
+                                "surah": str(a.get("surah", "-")).strip() or "-"
+                            })
+
+                ed_val = str(parsed.get("edition", "-")).strip()
+                if ed_val in ("-", "null", "none", "", "?"):
+                    ed_val = "-"
+
+                # Reject if neither edition nor any valid articles exist
+                if ed_val == "-" and len(clean_articles) == 0:
+                    return {
+                        "status": "error",
+                        "message": "Bukan cover majalah Ulul Albab / metadata tidak ditemukan."
+                    }
+
                 # Format according to WScaner standard output schema
                 return {
                     "status": "success",
                     "ocr_engine": f"Gemini Cloud VLM ({m})",
-                    "edition": str(parsed.get("edition", "-")).strip(),
+                    "edition": ed_val,
                     "year_roman": str(parsed.get("year_roman", "-")).strip(),
                     "date": str(parsed.get("date", "-")).strip(),
-                    "articles": parsed.get("articles", [])
+                    "articles": clean_articles[:3]
                 }
         except urllib.error.HTTPError as e:
             err_msg = e.read().decode("utf-8")

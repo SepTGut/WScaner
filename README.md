@@ -47,6 +47,8 @@ Bot WhatsApp otomatis & cerdas untuk memindai foto majalah/buletin dakwah **Ulul
   Format tabel rapi dengan mekanisme pencegahan duplikasi data berdasarkan kombinasi Edisi, Tahun, dan Tanggal.
 - **Role-Based WhatsApp Commands**  
   Hak akses terpisah antara administrator IT dan pengguna umum untuk operasional bot yang aman.
+- **Live Camera Auto-Scanner (`camera.bat` / `npm run camera`)**  
+  Fitur pemindaian webcam langsung real-time dengan pendeteksi stabilitas otomatis (*motion-settling trigger*), HUD modern dengan panduan kotak cover majalah, pencegahan duplikasi cerdas (riwayat 20 pindaian terakhir di `runtime/camera_scan_history.json`), dan sinkronisasi otomatis ke Google Sheets & Drive di background.
 
 ---
 
@@ -176,7 +178,9 @@ Tersedia file batch siap pakai di root proyek:
 
 1. **[`start.bat`](start.bat)**  
    Menampilkan menu interaktif 5 pilihan mesin OCR dan langsung menyalakan bot WhatsApp beserta background worker Python.
-2. **[`scan.bat`](scan.bat)**  
+2. **[`camera.bat`](camera.bat)**  
+   Membuka antarmuka pemindai webcam langsung (*Live Camera Auto-Scanner*). Arahkan majalah ke kamera, tahan stabil selama 1 detik, dan dokumen akan otomatis dipindai tanpa duplikasi ke Google Sheets.
+3. **[`scan.bat`](scan.bat)**  
    Menjalankan pemindaian gambar secara langsung dari terminal tanpa perlu membuka WhatsApp:
 
    ```cmd

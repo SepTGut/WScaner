@@ -631,13 +631,14 @@ async function handleMessage(sock, msg) {
     }
 
     imageQueue.push({ msg, remoteJid });
-    const queuePosition = imageQueue.length;
-    sessionLogger.logToSession(`⏳ Foto masuk antrean ke-${queuePosition}`);
+    const isWaitingInQueue = imageQueue.length > 1 || activeOcrWorkers >= OCR_CONCURRENCY_LIMIT;
+    const queueDisplayPos = imageQueue.length + (activeOcrWorkers > 0 ? activeOcrWorkers : 0);
+    sessionLogger.logToSession(`⏳ Foto masuk antrean ke-${imageQueue.length}`);
 
-    if (queuePosition > 1) {
-      console.log(`⏳ [DEBUG] Foto ditambahkan ke antrean (Posisi ke-${queuePosition}).`);
+    if (isWaitingInQueue) {
+      console.log(`⏳ [DEBUG] Foto ditambahkan ke antrean (Posisi ke-${queueDisplayPos}).`);
       await sendBotReply(sock, remoteJid, {
-        text: `⏳ *Foto diterima!*\nMasuk antrean nomor *${queuePosition}*. Akan diproses secara berurutan.`
+        text: `⏳ *Foto diterima!*\nMasuk antrean nomor *${queueDisplayPos}*. Akan diproses secara berurutan.`
       }, { quoted: msg });
     } else {
       console.log(`⏳ [DEBUG] Foto diterima! Mulai mengunduh & memproses OCR...`);

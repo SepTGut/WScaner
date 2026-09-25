@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import re
 import requests
 from PIL import Image
@@ -85,7 +86,7 @@ def run_google_drive_ocr(image_path: str, access_token: str = None) -> str:
     headers = {"Authorization": f"Bearer {token}"}
     fname = os.path.basename(image_path)
     metadata = {
-        "name": f"tmp_ocr_{fname}_{int(os.times().system)}",
+        "name": f"tmp_ocr_{fname}_{int(time.time() * 1000)}",
         "mimeType": "application/vnd.google-apps.document"
     }
     multipart_files = {
@@ -303,13 +304,27 @@ def extract_with_drive(image_path: str, api_key: str = None) -> dict:
             except Exception as e:
                 print(f"[INFO] Gemini text structuring skipped/failed: {e}", file=sys.stderr)
 
+        articles = [
+            a for a in parsed.get("articles", [])
+            if isinstance(a, dict) and len(str(a.get("title", "")).strip()) >= 5
+        ]
+        ed = str(parsed.get("edition", "-")).strip()
+        if ed in ("-", "null", "none", "", "?"):
+            ed = "-"
+
+        if ed == "-" and len(articles) == 0:
+            return {
+                "status": "error",
+                "message": "Bukan cover majalah Ulul Albab / metadata tidak ditemukan."
+            }
+
         return {
             "status": "success",
             "ocr_engine": "Google Drive Built-in OCR",
-            "edition": parsed.get("edition", "-"),
+            "edition": ed,
             "year_roman": parsed.get("year_roman", "-"),
             "date": parsed.get("date", "-"),
-            "articles": parsed.get("articles", [])
+            "articles": articles
         }
 
     except Exception as e:

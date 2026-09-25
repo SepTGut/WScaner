@@ -454,6 +454,15 @@ function performDriveOcr(fileId, imageBase64, imageMime) {
       Logger.log("Trash temp doc error: " + trashErr.toString());
     }
 
+    // Clean up temporary image file if it was created specifically for this OCR request
+    if (createdTempFile && targetFileId) {
+      try {
+        DriveApp.getFileById(targetFileId).setTrashed(true);
+      } catch (trashImgErr) {
+        Logger.log("Trash temp image error: " + trashImgErr.toString());
+      }
+    }
+
     const lines = extractedText.split("\n")
       .map(function(l) { return l.trim(); })
       .filter(function(l) { return l.length > 0; });

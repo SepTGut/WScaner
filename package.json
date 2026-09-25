@@ -7,6 +7,7 @@
     "start": "node src/bot/bot.js",
     "onetime": "node src/bot/oneTimeUsed.js",
     "test:ocr": "python src/ocr/ocr_processor.py data/samples/Example0.jpg.jpeg",
+    "camera": "python src/ocr/live_camera.py",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d",
     "docker:logs": "docker compose logs -f",

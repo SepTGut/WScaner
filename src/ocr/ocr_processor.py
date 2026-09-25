@@ -287,6 +287,22 @@ async def process_image(
         except Exception as e:
             print(f"[WARN] Auto Drive fallback error: {e}", file=sys.stderr)
 
+    # Filter valid articles with non-empty titles
+    articles = [
+        a for a in articles
+        if isinstance(a, dict) and len(str(a.get("title", "")).strip()) >= 5
+    ]
+
+    # If neither edition nor any articles were found, this is not a valid magazine cover
+    if not edition and len(articles) == 0:
+        return {
+            "status": "error",
+            "message": "Bukan cover majalah Ulul Albab / teks tidak terdeteksi.",
+            "ocr_engine": get_ocr_engine_name(),
+            "timestamp": now_str,
+            "filename": os.path.basename(image_path)
+        }
+
     result = {
         "status": "success",
         "ocr_engine": get_ocr_engine_name(),
