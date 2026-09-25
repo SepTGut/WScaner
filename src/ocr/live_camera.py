@@ -199,8 +199,43 @@ class LiveCameraScanner:
     """Live camera controller with motion detection, HUD, and OCR pipeline."""
 
     SUPPORTED_ENGINES = ["auto", "windows", "groq", "gemini", "drive"]
+    RESOLUTION_PRESETS = {
+        "480p": (640, 480),
+        "720p": (1280, 720),
+        "hd": (1280, 720),
+        "1080p": (1920, 1080),
+        "fhd": (1920, 1080),
+        "1440p": (2560, 1440),
+        "2k": (2560, 1440),
+        "4k": (3840, 2160),
+        "max": (3840, 2160),
+    }
+    RESOLUTION_CYCLE = ["1080p", "1440p", "720p"]
 
-    def __init__(self, camera_index: int = 0, engine: str = None, gas_url: str = None):
+    @classmethod
+    def _resolve_target_resolution(cls, preset_or_str: str, custom_w: int = None, custom_h: int = None) -> tuple[int, int]:
+        if custom_w and custom_h:
+            return (custom_w, custom_h)
+        val = (preset_or_str or "1080p").lower().strip()
+        if val in cls.RESOLUTION_PRESETS:
+            return cls.RESOLUTION_PRESETS[val]
+        if "x" in val:
+            try:
+                parts = val.split("x")
+                return (int(parts[0]), int(parts[1]))
+            except Exception:
+                pass
+        return (1920, 1080)
+
+    def __init__(
+        self,
+        camera_index: int = 0,
+        engine: str = None,
+        gas_url: str = None,
+        resolution: str = "1080p",
+        width: int = None,
+        height: int = None
+    ):
         self.camera_index = camera_index
         self.current_engine = (engine or os.environ.get("OCR_ENGINE", "auto")).lower()
         if self.current_engine not in self.SUPPORTED_ENGINES:
@@ -208,6 +243,13 @@ class LiveCameraScanner:
 
         self.gas_url = gas_url or os.environ.get("GAS_WEBHOOK_URL") or os.environ.get("GOOGLE_SCRIPT_URL")
         self.history_mgr = ScanHistoryManager(HISTORY_FILE, max_items=20)
+
+        # Resolution settings (Default: 1080p Full HD)
+        self.current_res_preset = (resolution or "1080p").lower()
+        self.req_width = width
+        self.req_height = height
+        self.actual_w = 0
+        self.actual_h = 0
 
         # State tracking
         self.is_running = False
@@ -238,6 +280,27 @@ class LiveCameraScanner:
         self.current_engine = self.SUPPORTED_ENGINES[(idx + 1) % len(self.SUPPORTED_ENGINES)]
         self.set_status(f"Mesin OCR diganti ke: {self.current_engine.upper()}", "ready")
         play_sound("capture")
+
+    def cycle_resolution(self, cap):
+        """Cycles resolution presets on the fly (1080p -> 1440p -> 720p)."""
+        idx = 0
+        if self.current_res_preset in self.RESOLUTION_CYCLE:
+            idx = (self.RESOLUTION_CYCLE.index(self.current_res_preset) + 1) % len(self.RESOLUTION_CYCLE)
+        self.current_res_preset = self.RESOLUTION_CYCLE[idx]
+        target_w, target_h = self._resolve_target_resolution(self.current_res_preset)
+
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        except Exception:
+            pass
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_h)
+        self.actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.prev_gray_crop = None  # Reset motion crop buffer for size change
+        self.set_status(f"Resolusi diubah ke: {self.actual_w}x{self.actual_h} ({self.current_res_preset.upper()})", "ready")
+        play_sound("capture")
+        print(f"\n[INFO] Resolusi Kamera Diubah: {self.actual_w}x{self.actual_h} ({self.current_res_preset.upper()})")
 
     def set_status(self, message: str, status_type: str = "ready"):
         self.status_message = message
@@ -413,11 +476,16 @@ class LiveCameraScanner:
         # Header text
         cv2.putText(frame, "WSCANER LIVE CAMERA", (18, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
         cv2.putText(frame, f"ENGINE: {self.current_engine.upper()}", (275, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 220, 255), 1)
-        
+
         doc_detected = self.current_edge_density >= self.min_edge_density
         doc_label = "DOC: SIAP [OK]" if doc_detected else "DOC: MENCARI COVER..."
         doc_color = (80, 240, 100) if doc_detected else (140, 140, 150)
         cv2.putText(frame, doc_label, (470, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.46, doc_color, 1)
+
+        # Resolution Badge
+        res_badge = f"RES: {W}x{H}"
+        cv2.putText(frame, res_badge, (675, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (200, 215, 230), 1)
+
         cv2.putText(frame, self.sync_badge, (W - 230, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (180, 240, 180), 1)
 
         # Sidebar text (History)
@@ -457,8 +525,8 @@ class LiveCameraScanner:
         cv2.putText(frame, full_status, (18, H - 24), cv2.FONT_HERSHEY_SIMPLEX, 0.54, theme_color, 2)
 
         # Controls Hint
-        controls_hint = "[SPACE] Foto | [C] Reset Riwayat | [E] Ganti Mesin | [Q] Keluar"
-        cv2.putText(frame, controls_hint, (W - 510, H - 24), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (160, 160, 170), 1)
+        controls_hint = "[SPACE] Foto | [R] Resolusi | [E] Mesin OCR | [C] Reset | [Q] Keluar"
+        cv2.putText(frame, controls_hint, (W - 570, H - 24), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (160, 160, 170), 1)
 
     def run(self):
         """Main camera loop."""
@@ -472,23 +540,35 @@ class LiveCameraScanner:
             print(f"[ERROR] Gagal membuka kamera pada index {self.camera_index}.", file=sys.stderr)
             return False
 
-        # Attempt to set HD resolution
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        print(f"[INFO] Resolusi Kamera: {actual_w}x{actual_h}")
+        # Configure High-Definition Resolution (Default: 1080p Full HD)
+        target_w, target_h = self._resolve_target_resolution(self.current_res_preset, self.req_width, self.req_height)
+        try:
+            # Set MJPG for fluid 30 FPS at 1080p/1440p across USB & integrated webcams
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        except Exception:
+            pass
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_h)
+        self.actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"[INFO] Resolusi Kamera Aktif: {self.actual_w}x{self.actual_h} ({self.current_res_preset.upper()})")
         print(f"[INFO] Mesin OCR Aktif: {self.current_engine.upper()}")
         print(f"[INFO] Riwayat Tersimpan: {len(self.history_mgr.history)} entri")
         print("\n=== KONTROL KEYBOARD ===")
         print(" [SPACE] : Pindai manual seketika")
-        print(" [C]     : Hapus riwayat pindaian")
+        print(" [R]     : Ganti resolusi kamera (1080p -> 1440p/2K -> 720p)")
         print(" [E]     : Ganti mesin OCR (Auto / Windows / Groq / Gemini / Drive)")
+        print(" [C]     : Hapus riwayat pindaian")
         print(" [Q/ESC] : Keluar")
         print("========================\n")
 
         window_name = "WScaner - Live Camera Auto-Scanner"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        # Create a spacious, sharp preview window that fits desktop displays comfortably
+        init_win_w = min(self.actual_w, 1600)
+        init_win_h = int(init_win_w * (self.actual_h / self.actual_w)) if self.actual_w > 0 else 900
+        cv2.resizeWindow(window_name, init_win_w, init_win_h)
 
         self.is_running = True
         last_frame_time = time.time()
@@ -599,6 +679,8 @@ class LiveCameraScanner:
                         print("\n[INFO] Manual capture dipicu via [SPACE]!")
                         crop = frame[gy1:gy2, gx1:gx2]
                         self.process_capture_async(crop.copy())
+                elif key in (ord('r'), ord('R')):  # Cycle resolution
+                    self.cycle_resolution(cap)
                 elif key in (ord('c'), ord('C')):  # Clear history
                     self.history_mgr.clear()
                     self.set_status("Riwayat pindaian berhasil dibersihkan! [0/20]", "ready")
@@ -648,6 +730,10 @@ def interactive_select_camera() -> int:
 def main():
     parser = argparse.ArgumentParser(description="WScaner Live Camera Auto-Scanner")
     parser.add_argument("--camera", "-c", type=int, default=None, help="Index kamera (0, 1, 2, ...)")
+    parser.add_argument("--res", "--resolution", "-r", default="1080p",
+                        help="Resolusi kamera: 1080p (default), 720p, 1440p, 2k, 4k, max, atau WxH")
+    parser.add_argument("--width", type=int, default=None, help="Lebar frame kustom (e.g. 1920)")
+    parser.add_argument("--height", type=int, default=None, help="Tinggi frame kustom (e.g. 1080)")
     parser.add_argument("--engine", "-e", choices=LiveCameraScanner.SUPPORTED_ENGINES, default=None,
                         help="Pilih mesin OCR (auto, windows, groq, gemini, drive)")
     parser.add_argument("--gas-url", help="URL Google Apps Script Webhook")
@@ -667,7 +753,10 @@ def main():
     scanner = LiveCameraScanner(
         camera_index=cam_idx,
         engine=args.engine,
-        gas_url=args.gas_url
+        gas_url=args.gas_url,
+        resolution=args.res,
+        width=args.width,
+        height=args.height
     )
     scanner.run()
 

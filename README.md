@@ -179,7 +179,9 @@ Tersedia file batch siap pakai di root proyek:
 1. **[`start.bat`](start.bat)**  
    Menampilkan menu interaktif 5 pilihan mesin OCR dan langsung menyalakan bot WhatsApp beserta background worker Python.
 2. **[`camera.bat`](camera.bat)**  
-   Membuka antarmuka pemindai webcam langsung (*Live Camera Auto-Scanner*). Arahkan majalah ke kamera, tahan stabil selama 1 detik, dan dokumen akan otomatis dipindai tanpa duplikasi ke Google Sheets.
+   Membuka antarmuka pemindai webcam langsung (*Live Camera Auto-Scanner*) dengan resolusi default **Full HD 1080p (1920x1080)**. Arahkan majalah ke kotak panduan, tahan stabil 1 detik, dan dokumen akan otomatis dipindai tanpa duplikasi ke Google Sheets.
+   * **Tombol Cepat:** `[SPACE]` Foto manual, `[R]` Ganti resolusi (1080p / 1440p 2K / 720p), `[E]` Ganti mesin OCR, `[C]` Reset riwayat.
+   * **Parameter CLI:** `camera.bat --res 1440p` atau `python src/ocr/live_camera.py --res 1080p`.
 3. **[`scan.bat`](scan.bat)**  
    Menjalankan pemindaian gambar secara langsung dari terminal tanpa perlu membuka WhatsApp:
 
