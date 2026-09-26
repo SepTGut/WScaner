@@ -64,6 +64,9 @@ function doGet(e) {
     const fId = e.parameter.folder_id || e.parameter.folderId || null;
     return ContentService.createTextOutput(JSON.stringify(listDriveFiles(fId))).setMimeType(ContentService.MimeType.JSON);
   }
+  if (e && e.parameter && (e.parameter.action === "get_sheet_data" || e.parameter.action === "read_sheet")) {
+    return ContentService.createTextOutput(JSON.stringify(getSheetDataResponse())).setMimeType(ContentService.MimeType.JSON);
+  }
   return ContentService.createTextOutput(JSON.stringify({
     status: "ok",
     message: "WScaner Web App is running",
@@ -123,6 +126,18 @@ function doPost(e) {
     if (data.action === "ocr_drive" || data.action === "drive_ocr") {
       const ocrRes = performDriveOcr(data.file_id || data.fileId, data.image_base64, data.image_mime);
       return ContentService.createTextOutput(JSON.stringify(ocrRes)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Support reading sheet data (values and formulas)
+    if (data.action === "get_sheet_data" || data.action === "read_sheet") {
+      const sheetData = getSheetDataResponse();
+      return ContentService.createTextOutput(JSON.stringify(sheetData)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Support updating/cleaning sheet data in-place without removing any rows
+    if (data.action === "update_sheet_clean" || data.action === "update_sheet_data" || data.action === "update_clean") {
+      const updateRes = updateSheetClean(data.rows, data.start_row);
+      return ContentService.createTextOutput(JSON.stringify(updateRes)).setMimeType(ContentService.MimeType.JSON);
     }
     
     const timestamp = data.timestamp || Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm");
@@ -478,3 +493,92 @@ function performDriveOcr(fileId, imageBase64, imageMime) {
     return { status: "error", message: err.toString() };
   }
 }
+
+function getSheetDataResponse() {
+  try {
+    const sheet = getTargetSheet();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < DATA_START_ROW) {
+      return {
+        status: "success",
+        total_rows: 0,
+        start_row: DATA_START_ROW,
+        end_row: lastRow,
+        rows: []
+      };
+    }
+    const numRows = lastRow - DATA_START_ROW + 1;
+    const values = sheet.getRange(DATA_START_ROW, 1, numRows, 9).getValues();
+    const formulas = sheet.getRange(DATA_START_ROW, 1, numRows, 9).getFormulas();
+    
+    const rows = [];
+    for (let i = 0; i < numRows; i++) {
+      const rowItem = [];
+      for (let j = 0; j < 9; j++) {
+        const formula = formulas[i][j];
+        let val = values[i][j];
+        if (val instanceof Date) {
+          val = Utilities.formatDate(val, "GMT+7", "yyyy-MM-dd HH:mm");
+        }
+        rowItem.push({
+          value: val !== null && val !== undefined ? String(val) : "",
+          formula: formula || ""
+        });
+      }
+      rows.push({
+        row_index: DATA_START_ROW + i,
+        cells: rowItem
+      });
+    }
+    
+    return {
+      status: "success",
+      total_rows: numRows,
+      start_row: DATA_START_ROW,
+      end_row: lastRow,
+      rows: rows
+    };
+  } catch (err) {
+    return { status: "error", message: err.toString() };
+  }
+}
+
+function updateSheetClean(rowsData, startRow) {
+  try {
+    const sheet = getTargetSheet();
+    const start = startRow || DATA_START_ROW;
+    if (!rowsData || rowsData.length === 0) {
+      return { status: "error", message: "No rows provided for update" };
+    }
+    const numRows = rowsData.length;
+    const lastRow = sheet.getLastRow();
+    
+    // Clear old data rows across columns 1 to 9 (leaving col 10 untouched)
+    if (lastRow >= start) {
+      sheet.getRange(start, 1, lastRow - start + 1, 9).clearContent();
+    }
+    
+    // Rows data is expected to be an array of arrays: [ [col1, col2, ... col9], ... ]
+    const range = sheet.getRange(start, 1, numRows, 9);
+    range.setValues(rowsData);
+    
+    // Standardize alignments and wrapping
+    range.setVerticalAlignment("middle");
+    const alignments = rowsData.map(function() {
+      return ["center", "center", "center", "center", "center", "left", "left", "center", "center"];
+    });
+    range.setHorizontalAlignments(alignments);
+    sheet.getRange(start, 6, numRows, 2).setWrap(true);
+    
+    return {
+      status: "success",
+      message: "Sheet data successfully updated and reformatted in-place",
+      updated_rows: numRows,
+      start_row: start,
+      end_row: start + numRows - 1
+    };
+  } catch (err) {
+    return { status: "error", message: err.toString() };
+  }
+}
+

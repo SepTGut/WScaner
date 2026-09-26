@@ -9,15 +9,15 @@ yarn-error.log*
 .env.*
 !.env.example
 runtime/auth/
-runtime/scanner_state.json
-runtime/camera_scan_history.json
+runtime/*.json
+runtime/temp/
+runtime/logs/
+scratch/
 auth_info/
 auth_info*/
 allowed_numbers.json
 
 # Temporary files, downloads and session logs
-runtime/temp/
-runtime/logs/
 data/downloads/
 GetDataFolder/
 temp/

@@ -127,7 +127,7 @@ def interactive_select_camera() -> int:
         return int(env_cam.strip())
 
     # 2. Config file check
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     config_file = os.path.join(project_root, "runtime", "camera_config.json")
     saved_index = None
     if os.path.exists(config_file):
