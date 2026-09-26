@@ -53,8 +53,10 @@ HANYA jika gambar ini terbukti adalah cover majalah/buletin Ulul Albab, ekstrak:
    - "surah": Referensi surah jika ada, jika tidak ada isi "-"
 
 Koreksi typo atau keanehan font kamera (misal "Tohun" -> "Tahun", "Edi5i" -> "Edisi", "Bagtan iJ" -> "(Bagian 1)").
+Abaikan segala watermark kamera atau aplikasi (seperti "DroidCam", "DEV47APPS", nama HP, atau timestamp).
 
 Kembalikan HANYA format JSON valid tanpa tanda kutip markdown, persis dengan struktur:
+
 {
   "is_magazine": true,
   "edition": "...",

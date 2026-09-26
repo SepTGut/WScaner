@@ -25,8 +25,8 @@ def is_noise_line(t: str) -> bool:
         return True
     if t.lower() in ['soesi', 'ang', '1st', 'l 32', 's 11']:
         return True
-    # Phone camera watermark noise e.g. "vivo Y27s", "shot on redmi", "triple camera", etc.
-    if re.search(r'\b(?:vivo|oppo|xiaomi|redmi|realme|samsung|huawei|infinix|shot on)\b', t, re.I):
+    # Phone camera & virtual camera watermark noise (DroidCam, dev47apps, smartphone tags)
+    if re.search(r'\b(?:droidcam|dev47apps|dev47|droid\s*cam|vivo|oppo|xiaomi|redmi|realme|samsung|huawei|infinix|shot on|watermark)\b', t, re.I):
         return True
     return False
 
@@ -34,8 +34,12 @@ def is_noise_line(t: str) -> bool:
 def clean_title(title: str) -> str:
     """Cleans OCR artifacts, fixes known font misreadings, and normalizes typography."""
     t = title.strip()
+
+    # Strip any stray DroidCam / dev47apps / smartphone watermark text
+    t = re.sub(r'\b(?:droidcam(?:\.app)?|dev47apps(?:\.com)?|dev47|droid\s*cam)\b', '', t, flags=re.I)
     
     # 1. Normalize stylized quotes and accented letters
+
     t = t.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     t = t.replace('ö', 'o').replace('Ö', 'O').replace('ü', 'u').replace('Ü', 'U')
     t = t.replace('ë', 'e').replace('ï', 'i').replace('é', 'e').replace('è', 'e')
@@ -88,12 +92,15 @@ def extract_surah(title: str):
 def clean_author_name(author: str) -> str:
     """Cleans OCR artifacts and fixes common italic font glitches in author names."""
     a = author.strip()
+    # Strip any stray DroidCam / dev47apps / smartphone watermark text
+    a = re.sub(r'\b(?:droidcam(?:\.app)?|dev47apps(?:\.com)?|dev47|droid\s*cam)\b', '', a, flags=re.I)
     # Strip leading prefixes like "Oleh:", "Penulis:", "By:"
     a = re.sub(r'^(?:Oleh|Penulis|By)\s*[:\-]?\s*', '', a, flags=re.I)
     # Strip leading quotes/apostrophes/symbols from italic font detection
     a = re.sub(r'^[^\w\s]+', '', a)
     # Fix umlauts and accented letters from camera OCR
     a = a.replace('Ä', 'A').replace('ä', 'a').replace('Ö', 'O').replace('ö', 'o').replace('ü', 'u').replace('Ü', 'U')
+
 
     # Specific name corrections from ground truth catalog (replacing in-place)
     a = re.sub(r'\bHandi\s+Ka\b', 'Handika', a, flags=re.I)
@@ -139,8 +146,11 @@ def normalize_roman(val: str) -> str:
 
 def normalize_metadata_line(t: str) -> str:
     """Fixes camera font misreadings in footer lines (e.g. Tohun -> Tahun, Edi5i -> Edisi, SO -> 50)."""
+    # Strip any stray DroidCam / dev47apps / smartphone watermark text
+    t = re.sub(r'\b(?:droidcam(?:\.app)?|dev47apps(?:\.com)?|dev47|droid\s*cam)\b', '', t, flags=re.I)
     # 1. Normalize 'Tahun' typos, including corrupted characters like Thun, Tohun, Tabun, Töhun, Tahum
     t = re.sub(r'\bT\S{1,3}u[nm]\b', 'Tahun', t, flags=re.I)
+
     # 2. Normalize 'Edisi' typos
     t = re.sub(r'\bEdi5i\b|\bEdi51\b|\bEdis1\b', 'Edisi', t, flags=re.I)
     # 3. Normalize Edisi SO / S0 / S<digit>

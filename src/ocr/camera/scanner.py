@@ -234,11 +234,19 @@ class LiveCameraScanner:
                     gas_resp = send_to_gas(self.gas_url, result)
                     if gas_resp.get("status") == "success" or gas_resp.get("http_code") == 200:
                         self.sync_badge = "SYNC: SUKSES [OK]"
+                        drive_url = gas_resp.get("drive_file_url")
+                        if drive_url:
+                            print(f"\n[INFO] Foto pindaian berhasil diunggah ke Google Drive: {drive_url}")
+                            self.detector.set_status(f"SUKSES: Edisi {edition or '?'} ({date_str}) - Tersimpan di Sheet & Drive!", "success")
+                        else:
+                            print(f"\n[INFO] Data pindaian berhasil disimpan ke Google Sheets.")
                     else:
                         err_msg = gas_resp.get("message") or gas_resp.get("error") or "Gagal"
                         self.sync_badge = f"SYNC: ERROR [{err_msg[:12]}]"
+                        print(f"\n[WARN] Gagal mengunggah ke Google Apps Script: {err_msg}", file=sys.stderr)
                 else:
                     self.sync_badge = "GAS: TIDAK AKTIF"
+
 
             except Exception as e:
                 self.detector.set_status(f"Error OCR: {e}", "unclear")
