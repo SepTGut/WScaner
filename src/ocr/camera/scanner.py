@@ -35,6 +35,8 @@ from src.ocr.camera.history.manager import ScanHistoryManager
 from src.ocr.camera.ui.hud import HUDRenderer
 from src.ocr.camera.ui.audio import play_sound
 from src.ocr.camera.detection.motion import MotionDetector
+from src.ocr.camera.detection.document import DocumentDetector, QuadTracker, four_point_transform
+from src.ocr.pipeline.orientation import auto_orient_cv2
 from src.ocr.ocr_processor import process_image
 from src.ocr.gas_client import send_to_gas
 
@@ -43,6 +45,7 @@ class LiveCameraScanner:
     """Live camera controller with motion detection, HUD, and OCR pipeline."""
 
     SUPPORTED_ENGINES = ["auto", "windows", "groq", "gemini", "drive"]
+    BOUNDARY_MODES = ["auto", "full", "box"]
 
     def __init__(
         self,
@@ -51,12 +54,17 @@ class LiveCameraScanner:
         gas_url: str = None,
         resolution: str = "1080p",
         width: int = None,
-        height: int = None
+        height: int = None,
+        boundary_mode: str = "auto"
     ):
         self.camera_index = camera_index
         self.current_engine = (engine or os.environ.get("OCR_ENGINE", "auto")).lower()
         if self.current_engine not in self.SUPPORTED_ENGINES:
             self.current_engine = "auto"
+
+        self.boundary_mode = (boundary_mode or "auto").lower()
+        if self.boundary_mode not in self.BOUNDARY_MODES:
+            self.boundary_mode = "auto"
 
         self.gas_url = gas_url or os.environ.get("GAS_WEBHOOK_URL") or os.environ.get("GOOGLE_SCRIPT_URL")
         self.history_mgr = ScanHistoryManager(HISTORY_FILE, max_items=20)
@@ -66,6 +74,8 @@ class LiveCameraScanner:
             stable_time_required=1.0,
             cooldown_duration=3.5
         )
+        self.doc_detector = DocumentDetector(target_downscale_w=480)
+        self.quad_tracker = QuadTracker(alpha=0.40, max_snap_distance=75.0, hold_frames=4)
 
         # Resolution settings (Default: 1080p Full HD)
         self.current_res_preset = (resolution or "1080p").lower()
@@ -81,12 +91,27 @@ class LiveCameraScanner:
         self.sync_badge = "GAS: TERHUBUNG" if self.gas_url else "GAS: TIDAK AKTIF"
         self.last_extracted = None
 
+    def cycle_boundary_mode(self):
+        """Cycles boundary modes: Auto Quad -> Full Frame -> Guide Box."""
+        idx = self.BOUNDARY_MODES.index(self.boundary_mode)
+        self.boundary_mode = self.BOUNDARY_MODES[(idx + 1) % len(self.BOUNDARY_MODES)]
+        labels = {
+            "auto": "AUTO-DETECT (Tanpa Batas)",
+            "full": "FULL FRAME (Seluruh Layar)",
+            "box": "GUIDE BOX (Kotak Panduan)"
+        }
+        name = labels.get(self.boundary_mode, self.boundary_mode.upper())
+        self.detector.set_status(f"Mode Batas: {name}", "ready")
+        play_sound("capture")
+        print(f"\n[INFO] Mode Batas Diubah: {name}")
+
     def cycle_engine(self):
         """Cycles through available OCR engines."""
         idx = self.SUPPORTED_ENGINES.index(self.current_engine)
         self.current_engine = self.SUPPORTED_ENGINES[(idx + 1) % len(self.SUPPORTED_ENGINES)]
         self.detector.set_status(f"Mesin OCR diganti ke: {self.current_engine.upper()}", "ready")
         play_sound("capture")
+
 
     def cycle_resolution(self, cap: cv2.VideoCapture):
         """Cycles resolution presets on the fly (1080p -> 1440p -> 720p)."""
@@ -122,7 +147,12 @@ class LiveCameraScanner:
         def worker():
             temp_path = os.path.join(TEMP_DIR, f"capture_{int(time.time())}.jpg")
             try:
-                cv2.imwrite(temp_path, frame_to_process, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                # 0. Auto-detect orientation and rotate upright before OCR
+                oriented_frame, rot_angle = auto_orient_cv2(frame_to_process)
+                if rot_angle != 0:
+                    print(f"\n[INFO] Auto-orient: Frame pindaian diputar {rot_angle}° ke posisi tegak (upright).")
+
+                cv2.imwrite(temp_path, oriented_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
                 # 1. Run OCR (send_gas=False so we can deduplicate first!)
                 loop = asyncio.new_event_loop()
@@ -137,6 +167,7 @@ class LiveCameraScanner:
                     )
                 )
                 loop.close()
+
 
                 if not result or result.get("status") != "success":
                     err_msg = result.get("message") if result else "Cover tidak terdeteksi."
@@ -213,9 +244,11 @@ class LiveCameraScanner:
         self.actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         print(f"[INFO] Resolusi Kamera Aktif: {self.actual_w}x{self.actual_h} ({self.current_res_preset.upper()})")
         print(f"[INFO] Mesin OCR Aktif: {self.current_engine.upper()}")
+        print(f"[INFO] Mode Batas: {self.boundary_mode.upper()} (Auto-Detect Kontur)")
         print(f"[INFO] Riwayat Tersimpan: {len(self.history_mgr.history)} entri")
         print("\n=== KONTROL KEYBOARD ===")
         print(" [SPACE] : Pindai manual seketika")
+        print(" [B]     : Ganti mode batas (Auto Kontur -> Full Frame -> Kotak Panduan)")
         print(" [R]     : Ganti resolusi kamera (1080p -> 1440p/2K -> 720p)")
         print(" [E]     : Ganti mesin OCR (Auto / Windows / Groq / Gemini / Drive)")
         print(" [C]     : Hapus riwayat pindaian")
@@ -254,7 +287,7 @@ class LiveCameraScanner:
 
                 H, W = frame.shape[:2]
 
-                # Compute magazine guide box (centered 4:3 area)
+                # Compute magazine guide box (fallback area for 'box' mode)
                 box_w = int(min(W * 0.72, H * 0.95 * (3 / 4)))
                 box_h = int(box_w * (4 / 3))
                 if box_h > int(H * 0.82):
@@ -267,14 +300,38 @@ class LiveCameraScanner:
                 gy2 = gy1 + box_h
                 guide_rect = (gx1, gy1, gx2, gy2)
 
-                # Motion & Stability Analysis
-                crop = frame[gy1:gy2, gx1:gx2]
-                should_capture = self.detector.analyze(crop, dt, now, self.is_processing)
+                # 1. Document Detection & Active Analysis Region Selection
+                tracked_quad = None
+                active_region = frame
+
+                if self.boundary_mode == "auto":
+                    detected_quad = self.doc_detector.detect_quad(frame)
+                    tracked_quad = self.quad_tracker.update(detected_quad)
+                    if tracked_quad is not None:
+                        active_region = four_point_transform(frame, tracked_quad)
+                    else:
+                        active_region = frame
+                elif self.boundary_mode == "box":
+                    self.quad_tracker.reset()
+                    tracked_quad = None
+                    active_region = frame[gy1:gy2, gx1:gx2]
+                else:  # "full" mode
+                    self.quad_tracker.reset()
+                    tracked_quad = None
+                    active_region = frame
+
+                # 2. Motion & Content Analysis on Active Region
+                should_capture = self.detector.analyze(active_region, dt, now, self.is_processing)
                 if should_capture:
-                    capture_img = crop.copy()
+                    if self.boundary_mode == "auto" and tracked_quad is not None:
+                        capture_img = four_point_transform(frame, tracked_quad)
+                    elif self.boundary_mode == "box":
+                        capture_img = frame[gy1:gy2, gx1:gx2].copy()
+                    else:
+                        capture_img = frame.copy()
                     self.process_capture_async(capture_img)
 
-                # Render UI HUD Overlay
+                # 3. Render UI HUD Overlay
                 HUDRenderer.render(
                     frame=frame,
                     guide_rect=guide_rect,
@@ -288,19 +345,29 @@ class LiveCameraScanner:
                     steady_duration=self.detector.steady_duration,
                     stable_time_required=self.detector.stable_time_required,
                     is_processing=self.is_processing,
-                    history=self.history_mgr.history
+                    history=self.history_mgr.history,
+                    detected_quad=tracked_quad,
+                    boundary_mode=self.boundary_mode
                 )
                 cv2.imshow(window_name, frame)
 
-                # Key controls
+                # 4. Key controls
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord('q'), ord('Q'), 27):  # 27 = ESC
                     print("\n[INFO] Menutup kamera...")
                     break
+                elif key in (ord('b'), ord('B')):  # Cycle boundary mode
+                    self.cycle_boundary_mode()
                 elif key == 32:  # SPACE: Manual capture
                     if not self.is_processing:
                         print("\n[INFO] Manual capture dipicu via [SPACE]!")
-                        self.process_capture_async(crop.copy())
+                        if self.boundary_mode == "auto" and tracked_quad is not None:
+                            capture_img = four_point_transform(frame, tracked_quad)
+                        elif self.boundary_mode == "box":
+                            capture_img = frame[gy1:gy2, gx1:gx2].copy()
+                        else:
+                            capture_img = frame.copy()
+                        self.process_capture_async(capture_img)
                 elif key in (ord('r'), ord('R')):  # Cycle resolution
                     self.cycle_resolution(cap)
                 elif key in (ord('c'), ord('C')):  # Clear history
@@ -324,6 +391,8 @@ def main():
     parser.add_argument("--camera", "-c", type=int, default=None, help="Index kamera (0, 1, 2, ...)")
     parser.add_argument("--res", "--resolution", "-r", type=str, default="1080p",
                         help="Resolusi kamera: 1080p (default), 720p, 1440p, 2k, 4k, max, atau WxH")
+    parser.add_argument("--boundary", "-b", choices=["auto", "full", "box"], default="auto",
+                        help="Mode batas: 'auto' (deteksi kontur otomatis & deskew), 'full' (seluruh layar), atau 'box' (kotak panduan)")
     parser.add_argument("--width", type=int, default=None, help="Lebar frame kustom (e.g. 1920)")
     parser.add_argument("--height", type=int, default=None, help="Tinggi frame kustom (e.g. 1080)")
     parser.add_argument("--engine", "-e", choices=["auto", "windows", "groq", "gemini", "drive"],
@@ -348,10 +417,12 @@ def main():
         gas_url=args.gas_url,
         resolution=args.res,
         width=args.width,
-        height=args.height
+        height=args.height,
+        boundary_mode=args.boundary
     )
     scanner.run()
 
 
 if __name__ == "__main__":
     main()
+

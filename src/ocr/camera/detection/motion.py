@@ -30,9 +30,10 @@ class MotionDetector:
         self.current_edge_density = 0.0
         self.waiting_for_next_item = False
 
-        self.status_message = "Arahkan cover majalah ke dalam kotak panduan."
+        self.status_message = "Arahkan kamera ke cover majalah (Deteksi Otomatis)."
         self.status_type = "ready"
         self.last_status_change = time.time()
+
 
     def set_status(self, message: str, status_type: str = "ready"):
         self.status_message = message
@@ -80,7 +81,7 @@ class MotionDetector:
             if not has_document:
                 self.steady_duration = 0.0
                 if not in_cooldown and (now - self.last_status_change) > 2.0:
-                    self.set_status("Arahkan cover majalah ke dalam kotak panduan.", "ready")
+                    self.set_status("Arahkan kamera ke cover majalah (Deteksi Otomatis).", "ready")
 
             # Case B: Already captured this document and holding it still -> Wait for swap
             elif self.waiting_for_next_item:
@@ -104,7 +105,8 @@ class MotionDetector:
             else:
                 self.steady_duration = max(0.0, self.steady_duration - (dt * 1.5))
                 if not in_cooldown and (now - self.last_status_change) > 2.5:
-                    self.set_status("Arahkan cover majalah ke dalam kotak panduan. Tahan stabil 1 detik.", "ready")
+                    self.set_status("Arahkan cover majalah ke kamera. Tahan stabil 1 detik.", "ready")
+
 
         self.prev_gray_crop = gray_blur
         return trigger_capture

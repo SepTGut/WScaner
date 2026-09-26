@@ -64,6 +64,22 @@ async def process_image(
     except Exception:
         pass
 
+    # Auto-orient based on text direction (0°, 90°, 180°, 270°)
+    effective_image_path = image_path
+    oriented_temp_path = None
+    try:
+        from src.ocr.pipeline.orientation import auto_orient_pil
+        img, angle_rotated = auto_orient_pil(img)
+        if angle_rotated != 0:
+            print(f"[INFO] Auto-orient: Gambar diputar {angle_rotated}° ke posisi tegak (upright).", file=sys.stderr)
+            temp_dir = os.path.join(PROJECT_ROOT, "runtime", "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            oriented_temp_path = os.path.join(temp_dir, f"oriented_{int(datetime.now().timestamp() * 1000)}.jpg")
+            img.save(oriented_temp_path, format="JPEG", quality=95)
+            effective_image_path = oriented_temp_path
+    except Exception as e:
+        print(f"[WARN] Auto-orient dilewati: {e}", file=sys.stderr)
+
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # Generate high-speed compressed Base64 image for Google Drive
@@ -75,7 +91,7 @@ async def process_image(
     # OPTION 1: Groq Cloud Vision LLM (Ultra-Fast LPU Inference)
     # -------------------------------------------------------------
     if target_engine in ("groq", "qwen", "llama"):
-        groq_res = extract_with_groq(image_path)
+        groq_res = extract_with_groq(effective_image_path)
         if groq_res.get("status") == "success":
             groq_res["timestamp"] = now_str
             groq_res["filename"] = os.path.basename(image_path)
@@ -85,6 +101,9 @@ async def process_image(
             groq_res["image_name"] = f"scan_{ed}_{int(datetime.now().timestamp())}.jpg"
             if send_gas and gas_url:
                 groq_res["gas_response"] = send_to_gas(gas_url, groq_res)
+            if oriented_temp_path and os.path.exists(oriented_temp_path):
+                try: os.remove(oriented_temp_path)
+                except Exception: pass
             return groq_res
         else:
             print(f"[WARN] Groq extraction failed: {groq_res.get('message')}. Falling back...", file=sys.stderr)
@@ -93,7 +112,7 @@ async def process_image(
     # OPTION 2: Explicit Gemini Vision LLM
     # -------------------------------------------------------------
     if target_engine in ("gemini", "llm", "vlm"):
-        gem_res = extract_with_gemini(image_path)
+        gem_res = extract_with_gemini(effective_image_path)
         if gem_res.get("status") == "success":
             gem_res["timestamp"] = now_str
             gem_res["filename"] = os.path.basename(image_path)
@@ -103,6 +122,9 @@ async def process_image(
             gem_res["image_name"] = f"scan_{ed}_{int(datetime.now().timestamp())}.jpg"
             if send_gas and gas_url:
                 gem_res["gas_response"] = send_to_gas(gas_url, gem_res)
+            if oriented_temp_path and os.path.exists(oriented_temp_path):
+                try: os.remove(oriented_temp_path)
+                except Exception: pass
             return gem_res
         else:
             print(f"[WARN] Gemini extraction failed: {gem_res.get('message')}. Falling back to Windows OCR...", file=sys.stderr)
@@ -111,7 +133,7 @@ async def process_image(
     # OPTION 2: Google Drive Native OCR (Built-in Google Docs OCR)
     # -------------------------------------------------------------
     if target_engine in ("drive", "googledrive", "gdrive"):
-        drive_res = extract_with_drive(image_path)
+        drive_res = extract_with_drive(effective_image_path)
         if drive_res.get("status") == "success":
             drive_res["timestamp"] = now_str
             drive_res["filename"] = os.path.basename(image_path)
@@ -121,9 +143,13 @@ async def process_image(
             drive_res["image_name"] = f"scan_{ed}_{int(datetime.now().timestamp())}.jpg"
             if send_gas and gas_url:
                 drive_res["gas_response"] = send_to_gas(gas_url, drive_res)
+            if oriented_temp_path and os.path.exists(oriented_temp_path):
+                try: os.remove(oriented_temp_path)
+                except Exception: pass
             return drive_res
         else:
             print(f"[WARN] Google Drive OCR failed: {drive_res.get('message')}. Falling back to Windows OCR...", file=sys.stderr)
+
 
     # -------------------------------------------------------------
     # OPTION 3: Windows Native OCR (Standard Local Pipeline)
@@ -247,7 +273,7 @@ async def process_image(
         # 1. Fallback to Groq Vision LLM (Ultra-Fast ~1.2s)
         try:
             print("[INFO] Auto-fallback: Windows OCR incomplete, querying Groq Vision LLM...", file=sys.stderr)
-            groq_res = extract_with_groq(image_path)
+            groq_res = extract_with_groq(effective_image_path)
             if groq_res.get("status") == "success":
                 groq_res["timestamp"] = now_str
                 groq_res["filename"] = os.path.basename(image_path)
@@ -257,6 +283,9 @@ async def process_image(
                 groq_res["image_name"] = f"scan_{ed}_{int(datetime.now().timestamp())}.jpg"
                 if send_gas and gas_url:
                     groq_res["gas_response"] = send_to_gas(gas_url, groq_res)
+                if oriented_temp_path and os.path.exists(oriented_temp_path):
+                    try: os.remove(oriented_temp_path)
+                    except Exception: pass
                 return groq_res
         except Exception as e:
             print(f"[WARN] Auto Groq fallback error: {e}", file=sys.stderr)
@@ -264,7 +293,7 @@ async def process_image(
         # 2. Fallback to Gemini if configured
         try:
             print("[INFO] Auto-fallback: Trying Gemini Vision LLM...", file=sys.stderr)
-            gem_res = extract_with_gemini(image_path)
+            gem_res = extract_with_gemini(effective_image_path)
             if gem_res.get("status") == "success":
                 gem_res["timestamp"] = now_str
                 gem_res["filename"] = os.path.basename(image_path)
@@ -274,14 +303,17 @@ async def process_image(
                 gem_res["image_name"] = f"scan_{ed}_{int(datetime.now().timestamp())}.jpg"
                 if send_gas and gas_url:
                     gem_res["gas_response"] = send_to_gas(gas_url, gem_res)
+                if oriented_temp_path and os.path.exists(oriented_temp_path):
+                    try: os.remove(oriented_temp_path)
+                    except Exception: pass
                 return gem_res
         except Exception as e:
             print(f"[WARN] Auto Gemini fallback error: {e}", file=sys.stderr)
 
-        # 2. Fallback to Google Drive Native OCR
+        # 3. Fallback to Google Drive Native OCR
         try:
             print("[INFO] Auto-fallback: Trying Google Drive Native OCR...", file=sys.stderr)
-            drive_res = extract_with_drive(image_path)
+            drive_res = extract_with_drive(effective_image_path)
             if drive_res.get("status") == "success":
                 drive_res["timestamp"] = now_str
                 drive_res["filename"] = os.path.basename(image_path)
@@ -291,9 +323,17 @@ async def process_image(
                 drive_res["image_name"] = f"scan_{ed}_{int(datetime.now().timestamp())}.jpg"
                 if send_gas and gas_url:
                     drive_res["gas_response"] = send_to_gas(gas_url, drive_res)
+                if oriented_temp_path and os.path.exists(oriented_temp_path):
+                    try: os.remove(oriented_temp_path)
+                    except Exception: pass
                 return drive_res
         except Exception as e:
             print(f"[WARN] Auto Drive fallback error: {e}", file=sys.stderr)
+
+    if oriented_temp_path and os.path.exists(oriented_temp_path):
+        try: os.remove(oriented_temp_path)
+        except Exception: pass
+
 
     # Filter valid articles with non-empty titles
     articles = [
