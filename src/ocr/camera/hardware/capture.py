@@ -82,8 +82,11 @@ def open_capture_device(camera_index: int, target_w: int, target_h: int, fps: in
     return cap
 
 
-def detect_available_cameras(max_probe: int = 5) -> list[int]:
-    """Detects available camera indices without crashing or hanging."""
+def detect_available_cameras(max_probe: int = 5) -> list[dict]:
+    """
+    Detects available camera indices and their native resolutions without crashing.
+    Returns: list of dicts [{'index': int, 'width': int, 'height': int, 'resolution': str}]
+    """
     try:
         cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
     except Exception:
@@ -98,13 +101,43 @@ def detect_available_cameras(max_probe: int = 5) -> list[int]:
         if cap.isOpened():
             ret, frame = cap.read()
             if ret and frame is not None:
-                available.append(idx)
+                w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                available.append({
+                    "index": idx,
+                    "width": w,
+                    "height": h,
+                    "resolution": f"{w}x{h}"
+                })
             cap.release()
     return available
 
 
 def interactive_select_camera() -> int:
-    """Interactively prompts user to choose camera if multiple available."""
+    """
+    Interactively prompts user to choose camera if multiple available.
+    Supports CAMERA_INDEX environment variable, persistent config, and auto-detects high-res cameras.
+    """
+    import os
+    import json
+
+    # 1. Environment variable check
+    env_cam = os.environ.get("CAMERA_INDEX")
+    if env_cam is not None and env_cam.strip().isdigit():
+        return int(env_cam.strip())
+
+    # 2. Config file check
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    config_file = os.path.join(project_root, "runtime", "camera_config.json")
+    saved_index = None
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                saved_index = cfg.get("last_camera_index")
+        except Exception:
+            pass
+
     print("Mendeteksi kamera yang terhubung...")
     cameras = detect_available_cameras(max_probe=5)
 
@@ -113,21 +146,43 @@ def interactive_select_camera() -> int:
         return 0
 
     if len(cameras) == 1:
-        print(f"[INFO] 1 Kamera terdeteksi: Index {cameras[0]}")
-        return cameras[0]
+        chosen = cameras[0]["index"]
+        print(f"[INFO] 1 Kamera terdeteksi: Index {chosen} ({cameras[0]['resolution']})")
+        return chosen
+
+    # Find recommended camera (highest resolution, or saved index)
+    highest_res_cam = max(cameras, key=lambda c: c["width"] * c["height"])
+    default_idx = saved_index if (saved_index is not None and any(c["index"] == saved_index for c in cameras)) else highest_res_cam["index"]
 
     print("\nBeberapa kamera terdeteksi:")
-    for idx in cameras:
-        print(f"  [{idx}] Kamera #{idx}")
+    for cam in cameras:
+        idx = cam["index"]
+        res = cam["resolution"]
+        notes = []
+        if idx == default_idx:
+            notes.append("Default/Tersimpan")
+        if cam["width"] >= 1920 or cam["height"] >= 1080:
+            notes.append("HD/OBS/DroidCam")
+        note_str = f" - {', '.join(notes)}" if notes else ""
+        print(f"  [{idx}] Kamera #{idx} ({res}){note_str}")
 
     try:
-        choice = input(f"Pilih nomor index kamera [{cameras[0]}]: ").strip()
+        choice = input(f"Pilih nomor index kamera [{default_idx}]: ").strip()
         if not choice:
-            return cameras[0]
-        val = int(choice)
-        if val in cameras:
-            return val
-        print(f"[WARN] Index {val} tidak valid. Menggunakan index {cameras[0]}.")
-        return cameras[0]
+            chosen = default_idx
+        else:
+            val = int(choice)
+            chosen = val if any(c["index"] == val for c in cameras) else default_idx
     except Exception:
-        return cameras[0]
+        chosen = default_idx
+
+    # Save choice for future runs
+    try:
+        os.makedirs(os.path.dirname(config_file), exist_ok=True)
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump({"last_camera_index": chosen}, f, indent=2)
+    except Exception:
+        pass
+
+    return chosen
+
