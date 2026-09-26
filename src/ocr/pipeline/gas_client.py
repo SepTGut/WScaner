@@ -2,11 +2,13 @@ import os
 import requests
 import time
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 def get_secret_token() -> str:
     token = os.environ.get("GAS_SECRET_TOKEN")
     if token:
         return token
-    env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+    env_file = os.path.join(PROJECT_ROOT, ".env")
     if os.path.exists(env_file):
         try:
             with open(env_file, "r", encoding="utf-8") as f:
@@ -20,13 +22,15 @@ def get_secret_token() -> str:
             pass
     return ""
 
-def send_to_gas(gas_url: str, payload: dict, max_retries: int = 3) -> dict:
+def send_to_gas(gas_url: str = None, payload: dict = None, max_retries: int = 3) -> dict:
     """Sends extracted OCR payload to Google Apps Script Web App with automatic retries."""
-    if not gas_url or not gas_url.strip():
+    target_url = (gas_url or os.environ.get("GAS_WEBHOOK_URL") or os.environ.get("GOOGLE_SCRIPT_URL") or "").strip()
+    if not target_url:
         return {"status": "skipped", "message": "No GAS URL provided"}
-    
-    clean_url = gas_url.strip()
+
+    clean_url = target_url
     last_error = None
+
 
     token = get_secret_token()
     if token and isinstance(payload, dict) and "secret" not in payload:
